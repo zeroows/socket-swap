@@ -127,3 +127,64 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+      # Write to GitHub Summary
+      - name: Write GitHub Summary
+        if: always()
+        run: |
+          echo "# 🐳 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Determine status
+          if [ "${{ job.status }}" = "success" ]; then
+            STATUS="✅ Success"
+          else
+            STATUS="❌ Failed"
+          fi
+          
+          echo "**Status**: $STATUS" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry**: ${{ env.REGISTRY }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "## Service Build Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "| ${{ env.BINARY_NAME }} | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| ${{ env.BINARY_NAME }} | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Deployment Guide" >> $GITHUB_STEP_SUMMARY
+          echo "To deploy version **${{ github.ref_name }}**, apply the Kubernetes manifests:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# 1. Apply RBAC" >> $GITHUB_STEP_SUMMARY
+          echo "kubectl apply -f k8s/rbac.yaml" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# 2. Deploy the shim" >> $GITHUB_STEP_SUMMARY
+          echo "kubectl apply -f k8s/deployment.yaml" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# 3. Expose via Service" >> $GITHUB_STEP_SUMMARY
+          echo "kubectl apply -f k8s/service.yaml" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "## 📖 Quick Start (Python)" >> $GITHUB_STEP_SUMMARY
+          echo "Access the Docker API from anywhere in your cluster:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`python" >> $GITHUB_STEP_SUMMARY
+          echo "import docker" >> $GITHUB_STEP_SUMMARY
+          echo "client = docker.DockerClient(base_url='http://socket-swap.default.svc:2375')" >> $GITHUB_STEP_SUMMARY
+          echo "container = client.containers.run('busybox', 'echo Hello!', detach=True)" >> $GITHUB_STEP_SUMMARY
+          echo "print(container.logs().decode())" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "[View Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+
