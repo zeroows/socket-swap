@@ -1,0 +1,32 @@
+# 1. Create the ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: job-manager-sa
+---
+# 2. Define permissions (Role)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: job-manager-role
+rules:
+- apiGroups: ["batch", ""]
+  resources: ["jobs", "cronjobs", "pods"]
+  verbs: ["create", "get", "list", "watch", "delete"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get"]
+---
+# 3. Bind the Role to the ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: job-manager-binding
+subjects:
+- kind: ServiceAccount
+  name: job-manager-sa
+roleRef:
+  kind: Role
+  name: job-manager-role
+  apiGroup: rbac.authorization.k8s.io
+

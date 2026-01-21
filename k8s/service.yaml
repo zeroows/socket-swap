@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: socket-swap
+  labels:
+    app: socket-shim
+spec:
+  selector:
+    app: socket-shim
+  ports:
+    - port: 2375
+      targetPort: 2375
+      protocol: TCP
+      name: docker-api
+  type: ClusterIP
+

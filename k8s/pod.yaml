@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: docker-to-k8s-bridge
+  labels:
+    app: socket-shim
+spec:
+  serviceAccountName: job-manager-sa  # The SA with Job permissions
+  containers:
+    # THE SHIM: Listens on /var/run/docker.sock AND TCP :2375
+    - name: rust-shim
+      image: your-rust-shim-image:latest
+      resources:
+        limits:
+          memory: 256Mi
+          cpu: 500m
+        requests:
+          memory: 128Mi
+          cpu: 100m
+      ports:
+        - containerPort: 2375
+          protocol: TCP
+          name: docker-api
+      volumeMounts:
+        - name: docker-socket
+          mountPath: /var/run/
+      env:
+        - name: DOCKER_SOCKET_PATH
+          value: "/var/run/docker.sock"
+        - name: DOCKER_TCP_ADDR
+          value: "0.0.0.0:2375"
+        - name: KUBE_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: JOB_TTL_SECONDS
+          value: "300"
+    
+    # THE USER SCRIPT: Thinks it's talking to Docker
+    - name: legacy-script
+      image: alpine:latest
+      resources:
+        limits:
+          memory: 128Mi
+          cpu: 200m
+        requests:
+          memory: 64Mi
+          cpu: 50m
+      command: 
+        - sh
+        - -c
+        - |
+          # Wait for socket to be available
+          while [ ! -S /var/run/docker.sock ]; do
+            echo "Waiting for Docker socket..."
+            sleep 1
+          done
+          
+          # Test the socket
+          echo "Testing Docker socket..."
+          curl --unix-socket /var/run/docker.sock http://localhost/_ping
+          
+          # Create a container
+          echo "Creating container..."
+          curl --unix-socket /var/run/docker.sock \
+            -X POST \
+            http://localhost/v1.41/containers/create \
+            -H "Content-Type: application/json" \
+            -d '{"Image": "busybox", "Cmd": ["echo", "Hello from Kubernetes Job!"]}'
+          
+          echo "Done!"
+          sleep 3600
+      volumeMounts:
+        - name: docker-socket
+          mountPath: /var/run/
+  
+  volumes:
+    - name: docker-socket
+      emptyDir: {}
+

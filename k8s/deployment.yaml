@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: socket-shim-deployment
+  labels:
+    app: socket-shim
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: socket-shim
+  template:
+    metadata:
+      labels:
+        app: socket-shim
+    spec:
+      serviceAccountName: job-manager-sa
+      containers:
+        # THE SHIM: Listens on /var/run/docker.sock AND TCP :2375
+        - name: rust-shim
+          image: your-rust-shim-image:latest
+          resources:
+            limits:
+              memory: 256Mi
+              cpu: 500m
+            requests:
+              memory: 128Mi
+              cpu: 100m
+          ports:
+            - containerPort: 2375
+              protocol: TCP
+              name: docker-api
+          volumeMounts:
+            - name: docker-socket
+              mountPath: /var/run/
+          env:
+            - name: DOCKER_SOCKET_PATH
+              value: "/var/run/docker.sock"
+            - name: DOCKER_TCP_ADDR
+              value: "0.0.0.0:2375"
+            - name: KUBE_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: JOB_TTL_SECONDS
+              value: "300"
+        
+        # YOUR AI AGENT: Communicates via Docker API (Unix socket or TCP)
+        # - name: ai-agent
+        #   image: your-agent:latest
+        #   resources:
+        #     limits:
+        #       memory: 1Gi
+        #       cpu: 1
+        #     requests:
+        #       memory: 512Mi
+        #       cpu: 500m
+        #   env:
+        #     # Can use Unix socket (sidecar)
+        #     - name: DOCKER_HOST
+        #       value: "unix:///var/run/docker.sock"
+        #     # Or use TCP (from anywhere in cluster)
+        #     # - name: DOCKER_HOST
+        #     #   value: "tcp://localhost:2375"
+        #   volumeMounts:
+        #     - name: docker-socket
+              mountPath: /var/run/
+      
+      volumes:
+        - name: docker-socket
+          emptyDir: {}
+

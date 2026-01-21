@@ -1,0 +1,59 @@
+# Example: Kubernetes Job that uses SocketSwap via TCP
+# This Job can run anywhere in the cluster and spawn containers via the Docker API
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: docker-api-test
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: test-client
+          image: python:3.11-slim
+          resources:
+            limits:
+              memory: 256Mi
+              cpu: 500m
+            requests:
+              memory: 128Mi
+              cpu: 100m
+          command: 
+            - sh
+            - -c
+            - |
+              pip install docker && python3 - <<'EOF'
+              import docker
+              import time
+              
+              # Connect to SocketSwap via service
+              client = docker.DockerClient(base_url='http://socket-swap.default.svc:2375')
+              
+              print("🔌 Connected to SocketSwap!")
+              version = client.version()
+              print(f"API Version: {version['ApiVersion']}")
+              
+              # Run a test container (will become a K8s Job)
+              print("\n🚀 Creating container...")
+              container = client.containers.run(
+                  'busybox',
+                  'echo "Hello from nested Kubernetes Job!"',
+                  detach=True
+              )
+              print(f"Container ID: {container.id}")
+              
+              # Wait for completion
+              time.sleep(10)
+              
+              # Get logs
+              print("\n📋 Fetching logs...")
+              logs = container.logs()
+              print(logs.decode())
+              
+              print("\n✅ Test completed successfully!")
+              EOF
+          env:
+            - name: DOCKER_HOST
+              value: "tcp://socket-swap.default.svc:2375"
+
