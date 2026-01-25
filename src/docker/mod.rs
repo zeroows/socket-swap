@@ -1,5 +1,4 @@
-pub mod types;
 pub mod multiplex;
+pub mod types;
 
 pub use types::*;
-

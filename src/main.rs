@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
     let unix_job_manager = job_manager.clone();
     let unix_pod_manager = pod_manager.clone();
     let socket_path = config.socket_path.clone();
-    
+
     tokio::spawn(async move {
         if let Err(e) = start_unix_listener(socket_path, unix_job_manager, unix_pod_manager).await {
             error!("Unix socket listener failed: {}", e);
@@ -145,11 +145,8 @@ async fn start_tcp_listener(
     }
 }
 
-async fn handle_connection<S>(
-    stream: S,
-    job_manager: Arc<JobManager>,
-    pod_manager: Arc<PodManager>,
-) where
+async fn handle_connection<S>(stream: S, job_manager: Arc<JobManager>, pod_manager: Arc<PodManager>)
+where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
     let io = TokioIo::new(stream);

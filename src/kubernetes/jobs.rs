@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use derive_builder::Builder;
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
     Container, EnvVar, PodSpec, PodTemplateSpec, ResourceRequirements,
@@ -10,6 +11,23 @@ use kube::{
     Client,
 };
 use std::collections::BTreeMap;
+
+#[derive(Builder)]
+#[builder(setter(into))]
+pub struct JobConfig {
+    pub container_id: String,
+    pub image: String,
+    #[builder(default)]
+    pub env: Vec<String>,
+    #[builder(default)]
+    pub cmd: Option<Vec<String>>,
+    #[builder(default)]
+    pub entrypoint: Option<Vec<String>>,
+    #[builder(default)]
+    pub working_dir: Option<String>,
+    #[builder(default)]
+    pub labels: BTreeMap<String, String>,
+}
 
 pub struct JobManager {
     client: Client,
@@ -46,20 +64,10 @@ impl JobManager {
         &self.client
     }
 
-    pub async fn create_job(
-        &self,
-        container_id: &str,
-        image: &str,
-        env: Vec<String>,
-        cmd: Option<Vec<String>>,
-        entrypoint: Option<Vec<String>>,
-        working_dir: Option<String>,
-        labels: BTreeMap<String, String>,
-    ) -> Result<Job> {
-        let jobs: Api<Job> = Api::namespaced(self.client.clone(), &self.namespace);
-
+    pub fn build_job(&self, config: JobConfig) -> Job {
         // Convert environment variables from Docker format (KEY=VALUE) to Kubernetes format
-        let env_vars: Vec<EnvVar> = env
+        let env_vars: Vec<EnvVar> = config
+            .env
             .iter()
             .filter_map(|e| {
                 let parts: Vec<&str> = e.splitn(2, '=').collect();
@@ -77,10 +85,10 @@ impl JobManager {
 
         let mut pod_labels = BTreeMap::new();
         pod_labels.insert("socket-shim".to_string(), "true".to_string());
-        pod_labels.insert("container-id".to_string(), container_id.to_string());
-        
+        pod_labels.insert("container-id".to_string(), config.container_id.clone());
+
         // Merge user-provided labels
-        for (k, v) in labels {
+        for (k, v) in config.labels {
             pod_labels.insert(k, v);
         }
 
@@ -94,7 +102,7 @@ impl JobManager {
 
         let mut container = Container {
             name: "task".to_string(),
-            image: Some(image.to_string()),
+            image: Some(config.image),
             env: Some(env_vars),
             resources: Some(ResourceRequirements {
                 limits: Some(limits),
@@ -104,21 +112,21 @@ impl JobManager {
             ..Default::default()
         };
 
-        if let Some(cmd) = cmd {
+        if let Some(cmd) = config.cmd {
             container.args = Some(cmd);
         }
 
-        if let Some(entrypoint) = entrypoint {
+        if let Some(entrypoint) = config.entrypoint {
             container.command = Some(entrypoint);
         }
 
-        if let Some(working_dir) = working_dir {
+        if let Some(working_dir) = config.working_dir {
             container.working_dir = Some(working_dir);
         }
 
-        let job = Job {
+        Job {
             metadata: ObjectMeta {
-                name: Some(format!("shim-{}", container_id)),
+                name: Some(format!("shim-{}", config.container_id)),
                 labels: Some(pod_labels.clone()),
                 ..Default::default()
             },
@@ -138,8 +146,12 @@ impl JobManager {
                 ..Default::default()
             }),
             ..Default::default()
-        };
+        }
+    }
 
+    pub async fn create_job(&self, config: JobConfig) -> Result<Job> {
+        let jobs: Api<Job> = Api::namespaced(self.client.clone(), &self.namespace);
+        let job = self.build_job(config);
         let created_job = jobs.create(&PostParams::default(), &job).await?;
         Ok(created_job)
     }
@@ -147,7 +159,7 @@ impl JobManager {
     pub async fn get_job(&self, container_id: &str) -> Result<Job> {
         let jobs: Api<Job> = Api::namespaced(self.client.clone(), &self.namespace);
         let job_name = format!("shim-{}", container_id);
-        
+
         jobs.get(&job_name)
             .await
             .map_err(|_| Error::NotFound(format!("Container {} not found", container_id)))
@@ -156,11 +168,11 @@ impl JobManager {
     pub async fn delete_job(&self, container_id: &str) -> Result<()> {
         let jobs: Api<Job> = Api::namespaced(self.client.clone(), &self.namespace);
         let job_name = format!("shim-{}", container_id);
-        
+
         jobs.delete(&job_name, &DeleteParams::default())
             .await
             .map_err(|_| Error::NotFound(format!("Container {} not found", container_id)))?;
-        
+
         Ok(())
     }
 
@@ -168,7 +180,7 @@ impl JobManager {
     pub async fn list_jobs(&self) -> Result<Vec<Job>> {
         let jobs: Api<Job> = Api::namespaced(self.client.clone(), &self.namespace);
         let lp = ListParams::default().labels("socket-shim=true");
-        
+
         let job_list = jobs.list(&lp).await?;
         Ok(job_list.items)
     }
@@ -183,3 +195,108 @@ impl JobManager {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kube::Client;
+
+    async fn mock_job_manager() -> JobManager {
+        // We use a dummy client for unit tests that don't hit the API
+        // We can create a Client from a dummy config using Client::try_from
+        use kube::config::Config;
+        let config = Config::new(hyper::Uri::from_static("http://localhost"));
+        let client = Client::try_from(config).unwrap();
+
+        JobManager {
+            client,
+            namespace: "default".to_string(),
+            ttl_seconds: 300,
+            cpu_limit: "500m".to_string(),
+            memory_limit: "512Mi".to_string(),
+            cpu_request: "100m".to_string(),
+            memory_request: "128Mi".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_build_job_basic() {
+        let manager = mock_job_manager().await;
+        let container_id = "test-container";
+        let image = "nginx:latest";
+        let env = vec!["FOO=BAR".to_string(), "INVALID".to_string()];
+
+        let config = JobConfigBuilder::default()
+            .container_id(container_id)
+            .image(image)
+            .env(env)
+            .build()
+            .unwrap();
+
+        let job = manager.build_job(config);
+
+        assert_eq!(job.metadata.name, Some("shim-test-container".to_string()));
+
+        let pod_spec = job.spec.unwrap().template.spec.unwrap();
+        let container = &pod_spec.containers[0];
+
+        assert_eq!(container.image, Some(image.to_string()));
+
+        // Check env vars
+        let env_vars = container.env.as_ref().unwrap();
+        assert_eq!(env_vars.len(), 1);
+        assert_eq!(env_vars[0].name, "FOO");
+        assert_eq!(env_vars[0].value, Some("BAR".to_string()));
+
+        // Check labels
+        let job_labels = job.metadata.labels.as_ref().unwrap();
+        assert_eq!(job_labels.get("socket-shim"), Some(&"true".to_string()));
+        assert_eq!(
+            job_labels.get("container-id"),
+            Some(&container_id.to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_build_job_with_commands() {
+        let manager = mock_job_manager().await;
+        let cmd = vec!["arg1".to_string(), "arg2".to_string()];
+        let entrypoint = vec!["/bin/sh".to_string(), "-c".to_string()];
+        let working_dir = "/app".to_string();
+
+        let config = JobConfigBuilder::default()
+            .container_id("test")
+            .image("image")
+            .cmd(cmd.clone())
+            .entrypoint(entrypoint.clone())
+            .working_dir(working_dir.clone())
+            .build()
+            .unwrap();
+
+        let job = manager.build_job(config);
+
+        let container = &job.spec.unwrap().template.spec.unwrap().containers[0];
+        assert_eq!(container.args, Some(cmd));
+        assert_eq!(container.command, Some(entrypoint));
+        assert_eq!(container.working_dir, Some(working_dir));
+    }
+
+    #[tokio::test]
+    async fn test_extract_container_id() {
+        let manager = mock_job_manager().await;
+        let mut labels = BTreeMap::new();
+        labels.insert("container-id".to_string(), "my-id".to_string());
+
+        let job = Job {
+            metadata: ObjectMeta {
+                labels: Some(labels),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        assert_eq!(
+            manager.extract_container_id(&job),
+            Some("my-id".to_string())
+        );
+    }
+}

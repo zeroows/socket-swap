@@ -1,8 +1,9 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "PascalCase")]
 pub struct ContainerCreateRequest {
     pub image: String,
@@ -21,7 +22,7 @@ pub struct ContainerCreateRequest {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "PascalCase")]
 pub struct HostConfig {
     #[serde(default)]
@@ -31,21 +32,21 @@ pub struct HostConfig {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "PascalCase")]
 pub struct PortBinding {
     pub host_ip: Option<String>,
     pub host_port: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "PascalCase")]
 pub struct ContainerCreateResponse {
     pub id: String,
     pub warnings: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "PascalCase")]
 pub struct ContainerInspectResponse {
     pub id: String,
@@ -58,7 +59,7 @@ pub struct ContainerInspectResponse {
     pub config: ContainerConfig,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "PascalCase")]
 pub struct ContainerState {
     pub status: String,
@@ -74,7 +75,7 @@ pub struct ContainerState {
     pub finished_at: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "PascalCase")]
 pub struct ContainerConfig {
     pub image: String,
@@ -83,7 +84,7 @@ pub struct ContainerConfig {
     pub labels: HashMap<String, String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "PascalCase")]
 pub struct VersionResponse {
     pub version: String,
@@ -96,21 +97,20 @@ pub struct VersionResponse {
     pub build_time: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct ErrorResponse {
     pub message: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "PascalCase")]
 pub struct ContainerWaitResponse {
     pub status_code: i64,
     pub error: Option<ErrorDetail>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "PascalCase")]
 pub struct ErrorDetail {
     pub message: String,
 }
-

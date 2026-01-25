@@ -24,7 +24,7 @@ pub async fn handle_version() -> Result<Response<Full<Bytes>>, Infallible> {
     };
 
     let json = serde_json::to_string(&version).unwrap();
-    
+
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
@@ -32,3 +32,26 @@ pub async fn handle_version() -> Result<Response<Full<Bytes>>, Infallible> {
         .unwrap())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use http_body_util::BodyExt;
+
+    #[tokio::test]
+    async fn test_handle_ping() {
+        let response = handle_ping().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(body, "OK");
+    }
+
+    #[tokio::test]
+    async fn test_handle_version() {
+        let response = handle_version().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let version: VersionResponse = serde_json::from_slice(&body).unwrap();
+        assert_eq!(version.api_version, "1.41");
+        assert!(version.version.contains("socket-shim"));
+    }
+}

@@ -19,7 +19,7 @@ impl PodManager {
     /// Find the pod associated with a job
     pub async fn get_pod_for_job(&self, job: &Job) -> Result<Pod> {
         let pods: Api<Pod> = Api::namespaced(self.client.clone(), &self.namespace);
-        
+
         // Get the job name to find associated pods
         let job_name = job
             .metadata
@@ -46,7 +46,7 @@ impl PodManager {
         tail_lines: Option<i64>,
     ) -> Result<String> {
         let pods: Api<Pod> = Api::namespaced(self.client.clone(), &self.namespace);
-        
+
         let mut log_params = LogParams::default();
         if follow {
             log_params.follow = true;
@@ -67,22 +67,24 @@ impl PodManager {
     ) -> Result<impl futures::Stream<Item = Result<bytes::Bytes>>> {
         use futures::io::AsyncBufReadExt;
         use futures::StreamExt;
-        
+
         let pods: Api<Pod> = Api::namespaced(self.client.clone(), &self.namespace);
-        
-        let mut log_params = LogParams::default();
-        log_params.follow = follow;
+
+        let log_params = LogParams {
+            follow,
+            ..Default::default()
+        };
 
         let reader = pods
             .log_stream(pod_name, &log_params)
             .await
-            .map_err(|e| Error::Kube(e))?;
+            .map_err(Error::Kube)?;
 
         // Convert AsyncBufRead to a Stream of lines
         let stream = reader.lines().map(|result| {
             result
                 .map(|line| bytes::Bytes::from(format!("{}\n", line)))
-                .map_err(|e| Error::Io(e))
+                .map_err(Error::Io)
         });
 
         Ok(stream)
@@ -97,4 +99,3 @@ impl PodManager {
             .map_err(|_| Error::NotFound(format!("Pod {} not found", pod_name)))
     }
 }
-

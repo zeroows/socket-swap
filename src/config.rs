@@ -18,14 +18,12 @@ impl Config {
             socket_path: env::var("DOCKER_SOCKET_PATH")
                 .unwrap_or_else(|_| "/var/run/docker.sock".to_string()),
             tcp_addr: env::var("DOCKER_TCP_ADDR").ok(),
-            namespace: env::var("KUBE_NAMESPACE")
-                .unwrap_or_else(|_| "default".to_string()),
+            namespace: env::var("KUBE_NAMESPACE").unwrap_or_else(|_| "default".to_string()),
             ttl_seconds_after_finished: env::var("JOB_TTL_SECONDS")
                 .unwrap_or_else(|_| "300".to_string())
                 .parse()
                 .unwrap_or(300),
-            default_cpu_limit: env::var("DEFAULT_CPU_LIMIT")
-                .unwrap_or_else(|_| "500m".to_string()),
+            default_cpu_limit: env::var("DEFAULT_CPU_LIMIT").unwrap_or_else(|_| "500m".to_string()),
             default_memory_limit: env::var("DEFAULT_MEMORY_LIMIT")
                 .unwrap_or_else(|_| "512Mi".to_string()),
             default_cpu_request: env::var("DEFAULT_CPU_REQUEST")
@@ -35,4 +33,3 @@ impl Config {
         }
     }
 }
-
