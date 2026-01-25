@@ -19,7 +19,23 @@ This guide shows how to use SocketSwap from **any Pod in your Kubernetes cluster
 
 ## Usage Examples
 
-### 1. From Python (Same Namespace)
+### 1. From Python (Local or Cluster)
+
+The example script `examples/tcp-client-example.py` supports both local testing (via port-forward) and cluster usage.
+
+```bash
+# Local testing (Terminal 1)
+kubectl port-forward svc/socket-swap 2375:2375
+
+# Local testing (Terminal 2)
+export SOCKET_SWAP_URL=http://localhost:2375
+uv run examples/tcp-client-example.py
+
+# Inside K8s (default behavior)
+uv run examples/tcp-client-example.py
+```
+
+### 2. From Python (Same Namespace)
 
 ```python
 import docker

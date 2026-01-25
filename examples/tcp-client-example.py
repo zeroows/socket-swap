@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.14"
+# dependencies = [
+#     "docker>=7.1.0",
+# ]
+# ///
 """
 Example: Using SocketSwap via TCP from anywhere in the Kubernetes cluster
 
@@ -8,16 +14,29 @@ Perfect for AI agents, cron jobs, or any workload that needs to spawn containers
 
 import docker
 import time
+import os
+import sys
 
 def main():
-    # Connect to SocketSwap via Service DNS
-    # Format: http://<service-name>.<namespace>.svc.cluster.local:<port>
-    client = docker.DockerClient(base_url='http://socket-swap.default.svc:2375')
+    # Connect to SocketSwap
+    # Default: Service DNS (works inside K8s)
+    # For local testing, use environment variable: SOCKET_SWAP_URL=http://localhost:2375
+    base_url = os.environ.get('SOCKET_SWAP_URL', 'http://socket-swap.default.svc:2375')
     
-    print("Testing connection...")
-    info = client.version()
-    print(f"Connected to: {info['Version']}")
-    print(f"API Version: {info['ApiVersion']}")
+    print(f"Connecting to SocketSwap at: {base_url}")
+    try:
+        client = docker.DockerClient(base_url=base_url)
+        info = client.version()
+        print(f"Connected! Version: {info['Version']}, API: {info['ApiVersion']}")
+    except Exception as e:
+        print(f"Error: Could not connect to SocketSwap at {base_url}")
+        print(f"Details: {e}")
+        if 'socket-swap.default.svc' in base_url:
+            print("\nTIP: If running locally, port-forward the service first:")
+            print("  kubectl port-forward svc/socket-swap 2375:2375")
+            print("Then run with:")
+            print("  SOCKET_SWAP_URL=http://localhost:2375 uv run tcp-client-example.py")
+        sys.exit(1)
     
     print("\n--- Example 1: Run a simple command ---")
     container = client.containers.run(

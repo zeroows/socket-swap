@@ -61,7 +61,25 @@ pub async fn handle_logs(
             .unwrap())
     } else {
         // Get logs once
-        let logs = pod_manager.get_logs(pod_name, false, tail_lines).await?;
+        // Pods might be in Succeeded/Terminated state, but logs are still available.
+        // However, if the pod is still creating, this will fail.
+        let logs = match pod_manager.get_logs(pod_name, false, tail_lines).await {
+            Ok(l) => l,
+            Err(e) => {
+                // If it's a "waiting to start" error, we can return an empty string or a specific message
+                // instead of a 500 error, as this is a common race condition in Docker-on-K8s
+                let err_str = e.to_string();
+                if err_str.contains("waiting to start") || err_str.contains("ContainerCreating") {
+                    tracing::warn!(
+                        "Logs requested for pod {} but it is still creating",
+                        pod_name
+                    );
+                    "".to_string()
+                } else {
+                    return Err(e);
+                }
+            }
+        };
 
         // Split into lines and encode each with Docker multiplex protocol
         let mut encoded_logs = Vec::new();

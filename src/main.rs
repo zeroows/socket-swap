@@ -62,9 +62,11 @@ async fn main() -> Result<()> {
     let unix_pod_manager = pod_manager.clone();
     let socket_path = config.socket_path.clone();
 
+    // Only try to start Unix listener if we have permissions or if it's not in a protected path
     tokio::spawn(async move {
         if let Err(e) = start_unix_listener(socket_path, unix_job_manager, unix_pod_manager).await {
             error!("Unix socket listener failed: {}", e);
+            info!("TIP: If running locally, you might need to set DOCKER_SOCKET_PATH to a local path you have write access to (e.g., ./docker.sock)");
         }
     });
 

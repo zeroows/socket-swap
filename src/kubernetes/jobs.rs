@@ -126,7 +126,7 @@ impl JobManager {
 
         Job {
             metadata: ObjectMeta {
-                name: Some(format!("shim-{}", config.container_id)),
+                name: Some(format!("socket-swap-{}", config.container_id)),
                 labels: Some(pod_labels.clone()),
                 ..Default::default()
             },
@@ -158,7 +158,7 @@ impl JobManager {
 
     pub async fn get_job(&self, container_id: &str) -> Result<Job> {
         let jobs: Api<Job> = Api::namespaced(self.client.clone(), &self.namespace);
-        let job_name = format!("shim-{}", container_id);
+        let job_name = format!("socket-swap-{}", container_id);
 
         jobs.get(&job_name)
             .await
@@ -167,7 +167,7 @@ impl JobManager {
 
     pub async fn delete_job(&self, container_id: &str) -> Result<()> {
         let jobs: Api<Job> = Api::namespaced(self.client.clone(), &self.namespace);
-        let job_name = format!("shim-{}", container_id);
+        let job_name = format!("socket-swap-{}", container_id);
 
         jobs.delete(&job_name, &DeleteParams::default())
             .await
@@ -234,7 +234,10 @@ mod tests {
 
         let job = manager.build_job(config);
 
-        assert_eq!(job.metadata.name, Some("shim-test-container".to_string()));
+        assert_eq!(
+            job.metadata.name,
+            Some("socket-swap-test-container".to_string())
+        );
 
         let pod_spec = job.spec.unwrap().template.spec.unwrap();
         let container = &pod_spec.containers[0];

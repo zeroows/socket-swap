@@ -65,6 +65,8 @@ impl PodManager {
         pod_name: &str,
         follow: bool,
     ) -> Result<impl futures::Stream<Item = Result<bytes::Bytes>>> {
+        use backon::ExponentialBuilder;
+        use backon::Retryable;
         use futures::io::AsyncBufReadExt;
         use futures::StreamExt;
 
@@ -75,13 +77,21 @@ impl PodManager {
             ..Default::default()
         };
 
-        let reader = pods
-            .log_stream(pod_name, &log_params)
+        // Retry logic for log stream, as pods might take a moment to start
+        let reader_fut = move || {
+            let pods = pods.clone();
+            let pod_name = pod_name.to_string();
+            let log_params = log_params.clone();
+            async move { pods.log_stream(&pod_name, &log_params).await }
+        };
+
+        let reader = reader_fut
+            .retry(ExponentialBuilder::default().with_max_times(5))
             .await
             .map_err(Error::Kube)?;
 
         // Convert AsyncBufRead to a Stream of lines
-        let stream = reader.lines().map(|result| {
+        let stream = reader.lines().map(|result: std::io::Result<String>| {
             result
                 .map(|line| bytes::Bytes::from(format!("{}\n", line)))
                 .map_err(Error::Io)

@@ -243,6 +243,7 @@ pub async fn handle_inspect(
             cmd,
             env,
             labels,
+            tty: false,
         },
     };
 

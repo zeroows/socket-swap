@@ -82,6 +82,7 @@ pub struct ContainerConfig {
     pub cmd: Vec<String>,
     pub env: Vec<String>,
     pub labels: HashMap<String, String>,
+    pub tty: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
