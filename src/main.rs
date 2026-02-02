@@ -173,6 +173,13 @@ where
                             error!("Bad request: {}", e);
                             hyper::StatusCode::BAD_REQUEST
                         }
+                        error::Error::Kube(kube::Error::Api(ref api_err))
+                            if api_err.code == 409 =>
+                        {
+                            // Map Kubernetes "AlreadyExists" (409) to Docker "Conflict" (409)
+                            info!("Resource already exists: {}", e);
+                            hyper::StatusCode::CONFLICT
+                        }
                         _ => {
                             error!("Error handling request: {}", e);
                             hyper::StatusCode::INTERNAL_SERVER_ERROR

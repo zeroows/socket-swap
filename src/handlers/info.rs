@@ -8,7 +8,7 @@ pub async fn handle_ping() -> Result<Response<Full<Bytes>>, Infallible> {
         .status(StatusCode::OK)
         .header("Content-Type", "text/plain")
         .body(Full::new(Bytes::from("OK")))
-        .unwrap())
+        .expect("Failed to build ping response"))
 }
 
 pub async fn handle_version() -> Result<Response<Full<Bytes>>, Infallible> {
@@ -23,13 +23,14 @@ pub async fn handle_version() -> Result<Response<Full<Bytes>>, Infallible> {
         build_time: "2024-01-01T00:00:00.000000000+00:00".to_string(),
     };
 
-    let json = serde_json::to_string(&version).unwrap();
+    let json =
+        serde_json::to_string(&version).expect("Failed to serialize version response to JSON");
 
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
         .body(Full::new(Bytes::from(json)))
-        .unwrap())
+        .expect("Failed to build version response"))
 }
 
 #[cfg(test)]
@@ -39,18 +40,31 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_ping() {
-        let response = handle_ping().await.unwrap();
+        let response = handle_ping().await.expect("handle_ping should succeed");
         assert_eq!(response.status(), StatusCode::OK);
-        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect response body")
+            .to_bytes();
         assert_eq!(body, "OK");
     }
 
     #[tokio::test]
     async fn test_handle_version() {
-        let response = handle_version().await.unwrap();
+        let response = handle_version()
+            .await
+            .expect("handle_version should succeed");
         assert_eq!(response.status(), StatusCode::OK);
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let version: VersionResponse = serde_json::from_slice(&body).unwrap();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect response body")
+            .to_bytes();
+        let version: VersionResponse =
+            serde_json::from_slice(&body).expect("Failed to parse version response JSON");
         assert_eq!(version.api_version, "1.41");
         assert!(version.version.contains("socket-swap"));
     }

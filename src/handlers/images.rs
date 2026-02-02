@@ -13,7 +13,7 @@ pub async fn handle_image_create() -> Response<Full<Bytes>> {
         .body(Full::new(Bytes::from(
             "{\"status\":\"Image is up to date\"}",
         )))
-        .unwrap()
+        .expect("Failed to build image create response")
 }
 
 pub async fn handle_image_inspect(image_name: String) -> Response<Full<Bytes>> {
@@ -35,7 +35,7 @@ pub async fn handle_image_inspect(image_name: String) -> Response<Full<Bytes>> {
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
         .body(Full::new(Bytes::from(response.to_string())))
-        .unwrap()
+        .expect("Failed to build image inspect response")
 }
 
 #[cfg(test)]
@@ -47,8 +47,14 @@ mod tests {
     async fn test_handle_image_create() {
         let response = handle_image_create().await;
         assert_eq!(response.status(), StatusCode::OK);
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect response body")
+            .to_bytes();
+        let json: serde_json::Value =
+            serde_json::from_slice(&body).expect("Failed to parse JSON response");
         assert_eq!(json["status"], "Image is up to date");
     }
 
@@ -57,9 +63,18 @@ mod tests {
         let image_name = "busybox:latest";
         let response = handle_image_inspect(image_name.to_string()).await;
         assert_eq!(response.status(), StatusCode::OK);
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect response body")
+            .to_bytes();
+        let json: serde_json::Value =
+            serde_json::from_slice(&body).expect("Failed to parse JSON response");
         assert_eq!(json["RepoTags"][0], image_name);
-        assert!(json["Id"].as_str().unwrap().starts_with("sha256:"));
+        assert!(json["Id"]
+            .as_str()
+            .expect("Id should be a string")
+            .starts_with("sha256:"));
     }
 }

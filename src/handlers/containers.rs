@@ -65,21 +65,21 @@ pub async fn handle_create(
 
     let json = serde_json::to_string(&response)?;
 
-    Ok(Response::builder()
+    Response::builder()
         .status(StatusCode::CREATED)
         .header("Content-Type", "application/json")
         .body(Full::new(Bytes::from(json)))
-        .unwrap())
+        .map_err(|e| Error::Internal(format!("Failed to build HTTP response: {}", e)))
 }
 
 pub async fn handle_start(container_id: String) -> Result<Response<Full<Bytes>>, Error> {
     // Jobs start automatically in Kubernetes, so this is a no-op
     tracing::info!("Container {} start requested (no-op)", container_id);
 
-    Ok(Response::builder()
+    Response::builder()
         .status(StatusCode::NO_CONTENT)
         .body(Full::new(Bytes::new()))
-        .unwrap())
+        .map_err(|e| Error::Internal(format!("Failed to build HTTP response: {}", e)))
 }
 
 pub async fn handle_stop(
@@ -89,10 +89,10 @@ pub async fn handle_stop(
     // Stopping a container in our model means deleting the Job
     job_manager.delete_job(&container_id).await?;
 
-    Ok(Response::builder()
+    Response::builder()
         .status(StatusCode::NO_CONTENT)
         .body(Full::new(Bytes::new()))
-        .unwrap())
+        .map_err(|e| Error::Internal(format!("Failed to build HTTP response: {}", e)))
 }
 
 pub async fn handle_delete(
@@ -101,10 +101,10 @@ pub async fn handle_delete(
 ) -> Result<Response<Full<Bytes>>, Error> {
     job_manager.delete_job(&container_id).await?;
 
-    Ok(Response::builder()
+    Response::builder()
         .status(StatusCode::NO_CONTENT)
         .body(Full::new(Bytes::new()))
-        .unwrap())
+        .map_err(|e| Error::Internal(format!("Failed to build HTTP response: {}", e)))
 }
 
 pub async fn handle_inspect(
@@ -259,11 +259,11 @@ pub async fn handle_inspect(
 
     let json = serde_json::to_string(&response)?;
 
-    Ok(Response::builder()
+    Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
         .body(Full::new(Bytes::from(json)))
-        .unwrap())
+        .map_err(|e| Error::Internal(format!("Failed to build HTTP response: {}", e)))
 }
 
 pub async fn handle_wait(
@@ -296,24 +296,26 @@ pub async fn handle_wait(
 
     let json = serde_json::to_string(&response)?;
 
-    Ok(Response::builder()
+    Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
         .body(Full::new(Bytes::from(json)))
-        .unwrap())
+        .map_err(|e| Error::Internal(format!("Failed to build HTTP response: {}", e)))
 }
 
 pub fn error_response(status: StatusCode, message: &str) -> Response<Full<Bytes>> {
     let error = ErrorResponse {
         message: message.to_string(),
     };
-    let json = serde_json::to_string(&error).unwrap();
+    // In error responses, we can't return a Result, so we use expect here
+    // This should never fail unless there's a programming error in building the response
+    let json = serde_json::to_string(&error).expect("Failed to serialize error response to JSON");
 
     Response::builder()
         .status(status)
         .header("Content-Type", "application/json")
         .body(Full::new(Bytes::from(json)))
-        .unwrap()
+        .expect("Failed to build error response")
 }
 
 #[cfg(test)]
@@ -322,7 +324,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_start_no_op() {
-        let response = handle_start("test-id".to_string()).await.unwrap();
+        let response = handle_start("test-id".to_string())
+            .await
+            .expect("handle_start should succeed");
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
     }
 
@@ -354,7 +358,8 @@ mod tests {
                 // Fallback for environments without kubeconfig
                 let config = kube::Config::new(hyper::Uri::from_static("http://localhost"));
                 JobManager::from_client(
-                    Client::try_from(config).unwrap(),
+                    Client::try_from(config)
+                        .expect("Failed to create mock Kubernetes client from config"),
                     "default".to_string(),
                     300,
                     "500m".to_string(),
@@ -374,7 +379,7 @@ mod tests {
             labels: HashMap::new(),
             host_config: None,
         })
-        .unwrap();
+        .expect("Failed to serialize test ContainerCreateRequest");
 
         // Test with name in query
         let query = Some("name=my-custom-container".to_string());
@@ -383,5 +388,12 @@ mod tests {
         // We expect an error here because it tries to hit K8s API,
         // but we can at least verify the logic up to that point if we were to mock JobManager.
         // For now, we've verified the build logic in jobs.rs tests.
+    }
+
+    #[tokio::test]
+    async fn test_handle_create_conflict() {
+        // This test documents the behavior we expect:
+        // If K8s returns 409 AlreadyExists, main.rs maps it to 409 Conflict.
+        // The actual mapping logic is in main.rs, not here, but this serves as documentation.
     }
 }

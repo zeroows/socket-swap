@@ -37,9 +37,10 @@ pub async fn handle_logs(
             match result {
                 Ok(bytes) => {
                     // Encode each chunk with Docker multiplex protocol
+                    // Use unwrap_or for graceful handling of non-UTF8 bytes
                     let encoded = encode_log_line(
                         StreamType::Stdout,
-                        std::str::from_utf8(&bytes).unwrap_or(""),
+                        std::str::from_utf8(&bytes).unwrap_or("<non-UTF8 data>"),
                     );
                     Ok(Frame::data(Bytes::from(encoded)))
                 }
@@ -54,11 +55,11 @@ pub async fn handle_logs(
             .map_err(|e| std::io::Error::other(e.to_string()))
             .boxed_unsync();
 
-        Ok(Response::builder()
+        Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", "application/vnd.docker.raw-stream")
             .body(body)
-            .unwrap())
+            .map_err(|e| Error::Internal(format!("Failed to build logs response: {}", e)))
     } else {
         // Get logs once
         // Pods might be in Succeeded/Terminated state, but logs are still available.
@@ -91,10 +92,10 @@ pub async fn handle_logs(
             .map_err(|e| match e {})
             .boxed_unsync();
 
-        Ok(Response::builder()
+        Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", "application/vnd.docker.raw-stream")
             .body(body)
-            .unwrap())
+            .map_err(|e| Error::Internal(format!("Failed to build logs response: {}", e)))
     }
 }

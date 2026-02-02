@@ -252,7 +252,8 @@ mod tests {
         // We can create a Client from a dummy config using Client::try_from
         use kube::config::Config;
         let config = Config::new(hyper::Uri::from_static("http://localhost"));
-        let client = Client::try_from(config).unwrap();
+        let client =
+            Client::try_from(config).expect("Failed to create mock Kubernetes client from config");
 
         JobManager {
             client,
@@ -277,25 +278,37 @@ mod tests {
             .image(image)
             .env(env)
             .build()
-            .unwrap();
+            .expect("Failed to build JobConfig");
 
         let job = manager.build_job(config);
 
         assert_eq!(job.metadata.name, Some("ss-test-container".to_string()));
 
-        let pod_spec = job.spec.unwrap().template.spec.unwrap();
+        let pod_spec = job
+            .spec
+            .expect("Job should have a spec")
+            .template
+            .spec
+            .expect("Job template should have a spec");
         let container = &pod_spec.containers[0];
 
         assert_eq!(container.image, Some(image.to_string()));
 
         // Check env vars
-        let env_vars = container.env.as_ref().unwrap();
+        let env_vars = container
+            .env
+            .as_ref()
+            .expect("Container should have environment variables");
         assert_eq!(env_vars.len(), 1);
         assert_eq!(env_vars[0].name, "FOO");
         assert_eq!(env_vars[0].value, Some("BAR".to_string()));
 
         // Check labels
-        let job_labels = job.metadata.labels.as_ref().unwrap();
+        let job_labels = job
+            .metadata
+            .labels
+            .as_ref()
+            .expect("Job metadata should have labels");
         assert_eq!(job_labels.get("socket-shim"), Some(&"true".to_string()));
         assert_eq!(
             job_labels.get("container-id"),
@@ -312,10 +325,10 @@ mod tests {
             .container_id(container_id)
             .image("busybox")
             .build()
-            .unwrap();
+            .expect("Failed to build JobConfig for long name test");
 
         let job = manager.build_job(config);
-        let job_name = job.metadata.name.unwrap();
+        let job_name = job.metadata.name.expect("Job should have a name");
 
         assert!(job_name.len() <= 63);
         assert!(job_name.starts_with("ss-tool-structure-0.0.96-1d4239-"));
@@ -324,9 +337,9 @@ mod tests {
         let label_id = job
             .metadata
             .labels
-            .unwrap()
+            .expect("Job should have labels")
             .get("container-id")
-            .unwrap()
+            .expect("Job should have container-id label")
             .clone();
         assert!(label_id.len() <= 63);
     }
@@ -362,11 +375,17 @@ mod tests {
             .entrypoint(entrypoint.clone())
             .working_dir(working_dir.clone())
             .build()
-            .unwrap();
+            .expect("Failed to build JobConfig with commands");
 
         let job = manager.build_job(config);
 
-        let container = &job.spec.unwrap().template.spec.unwrap().containers[0];
+        let container = &job
+            .spec
+            .expect("Job should have a spec")
+            .template
+            .spec
+            .expect("Job template should have a spec")
+            .containers[0];
         assert_eq!(container.args, Some(cmd));
         assert_eq!(container.command, Some(entrypoint));
         assert_eq!(container.working_dir, Some(working_dir));
