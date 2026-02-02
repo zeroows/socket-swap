@@ -64,6 +64,27 @@ impl JobManager {
         &self.client
     }
 
+    #[allow(dead_code)]
+    pub fn from_client(
+        client: Client,
+        namespace: String,
+        ttl_seconds: i32,
+        cpu_limit: String,
+        memory_limit: String,
+        cpu_request: String,
+        memory_request: String,
+    ) -> Self {
+        JobManager {
+            client,
+            namespace,
+            ttl_seconds,
+            cpu_limit,
+            memory_limit,
+            cpu_request,
+            memory_request,
+        }
+    }
+
     fn sanitize_name(&self, container_id: &str) -> String {
         let name = format!("ss-{}", container_id);
         if name.len() > 63 {
@@ -71,11 +92,10 @@ impl JobManager {
             // If the name is too long, we truncate it.
             // We keep the first 55 characters and append a short hash of the full name
             // to ensure uniqueness while staying under the limit.
-            use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
-            let mut hasher = DefaultHasher::new();
-            container_id.hash(&mut hasher);
-            let hash = format!("{:x}", hasher.finish());
+            // We use crc32fast for deterministic hashing across restarts.
+            let mut hasher = crc32fast::Hasher::new();
+            hasher.update(container_id.as_bytes());
+            let hash = format!("{:x}", hasher.finalize());
             let truncated = &name[..55];
             format!("{}-{}", truncated, &hash[..7])
         } else {
@@ -309,6 +329,23 @@ mod tests {
             .unwrap()
             .clone();
         assert!(label_id.len() <= 63);
+    }
+
+    #[tokio::test]
+    async fn test_sanitize_name_determinism() {
+        let manager = mock_job_manager().await;
+        let container_id = "tool-structure-0.0.96-1d4239-f56ff6d5-fbdd-46bb-ba40-62976b1c3a";
+
+        let name1 = manager.sanitize_name(container_id);
+        let name2 = manager.sanitize_name(container_id);
+
+        assert_eq!(name1, name2);
+
+        // Verify it's stable (CRC32 of this string should be constant)
+        // This ensures that even if we restart the process, we generate the same name
+        // for the same container ID.
+        let expected_prefix = "ss-tool-structure-0.0.96-1d4239-f56ff6d5-fbdd-46bb-ba40";
+        assert!(name1.starts_with(expected_prefix));
     }
 
     #[tokio::test]

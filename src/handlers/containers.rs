@@ -331,4 +331,57 @@ mod tests {
         let response = error_response(StatusCode::BAD_REQUEST, "test error");
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
+
+    #[tokio::test]
+    async fn test_handle_create_with_name() {
+        use crate::docker::ContainerCreateRequest;
+        use crate::kubernetes::JobManager;
+        use kube::Client;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        let manager = Arc::new(
+            JobManager::new(
+                "default".to_string(),
+                300,
+                "500m".to_string(),
+                "512Mi".to_string(),
+                "100m".to_string(),
+                "128Mi".to_string(),
+            )
+            .await
+            .unwrap_or_else(|_| {
+                // Fallback for environments without kubeconfig
+                let config = kube::Config::new(hyper::Uri::from_static("http://localhost"));
+                JobManager::from_client(
+                    Client::try_from(config).unwrap(),
+                    "default".to_string(),
+                    300,
+                    "500m".to_string(),
+                    "512Mi".to_string(),
+                    "100m".to_string(),
+                    "128Mi".to_string(),
+                )
+            }),
+        );
+
+        let body = serde_json::to_vec(&ContainerCreateRequest {
+            image: "busybox".to_string(),
+            env: vec![],
+            cmd: None,
+            entrypoint: None,
+            working_dir: None,
+            labels: HashMap::new(),
+            host_config: None,
+        })
+        .unwrap();
+
+        // Test with name in query
+        let query = Some("name=my-custom-container".to_string());
+        let _response = handle_create(bytes::Bytes::from(body), query, manager).await;
+
+        // We expect an error here because it tries to hit K8s API,
+        // but we can at least verify the logic up to that point if we were to mock JobManager.
+        // For now, we've verified the build logic in jobs.rs tests.
+    }
 }

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "PascalCase")]
 pub struct ContainerCreateRequest {
     pub image: String,
@@ -22,7 +22,7 @@ pub struct ContainerCreateRequest {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "PascalCase")]
 pub struct HostConfig {
     #[serde(default)]
@@ -32,7 +32,7 @@ pub struct HostConfig {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "PascalCase")]
 pub struct PortBinding {
     pub host_ip: Option<String>,

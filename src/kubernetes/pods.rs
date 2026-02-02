@@ -18,6 +18,9 @@ impl PodManager {
 
     /// Find the pod associated with a job
     pub async fn get_pod_for_job(&self, job: &Job) -> Result<Pod> {
+        use backon::ExponentialBuilder;
+        use backon::Retryable;
+
         let pods: Api<Pod> = Api::namespaced(self.client.clone(), &self.namespace);
 
         // Get the job name to find associated pods
@@ -27,15 +30,24 @@ impl PodManager {
             .as_ref()
             .ok_or_else(|| Error::Internal("Job has no name".to_string()))?;
 
-        // List pods with the job-name label
-        let lp = ListParams::default().labels(&format!("job-name={}", job_name));
-        let pod_list = pods.list(&lp).await?;
+        let list_fut =
+            move || {
+                let pods = pods.clone();
+                let job_name = job_name.clone();
+                async move {
+                    // List pods with the job-name label
+                    let lp = ListParams::default().labels(&format!("job-name={}", job_name));
+                    let pod_list = pods.list(&lp).await.map_err(Error::Kube)?;
 
-        pod_list
-            .items
-            .into_iter()
-            .next()
-            .ok_or_else(|| Error::NotFound(format!("No pod found for job {}", job_name)))
+                    pod_list.items.into_iter().next().ok_or_else(|| {
+                        Error::NotFound(format!("No pod found for job {}", job_name))
+                    })
+                }
+            };
+
+        list_fut
+            .retry(ExponentialBuilder::default().with_max_times(5))
+            .await
     }
 
     /// Get logs from a pod

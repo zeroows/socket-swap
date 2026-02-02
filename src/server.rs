@@ -7,6 +7,7 @@ use crate::handlers::{
     images::{handle_image_create, handle_image_inspect},
     info::{handle_ping, handle_version},
     logs::handle_logs,
+    volumes::handle_volume_inspect,
 };
 use crate::kubernetes::{JobManager, PodManager};
 use http_body_util::BodyExt;
@@ -135,6 +136,12 @@ impl Router {
                 handle_wait(container_id, self.job_manager.clone())
                     .await
                     .map(|r| r.map(box_body))?
+            }
+
+            // Volume endpoints
+            (Method::GET, path) if path.starts_with("/volumes/") => {
+                let volume_name = path.trim_start_matches("/volumes/").to_string();
+                handle_volume_inspect(volume_name).await.map(box_body)
             }
 
             // Unimplemented endpoints

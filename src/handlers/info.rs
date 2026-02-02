@@ -13,7 +13,7 @@ pub async fn handle_ping() -> Result<Response<Full<Bytes>>, Infallible> {
 
 pub async fn handle_version() -> Result<Response<Full<Bytes>>, Infallible> {
     let version = VersionResponse {
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: format!("socket-swap {}", env!("CARGO_PKG_VERSION")),
         api_version: "1.41".to_string(),
         git_commit: "unknown".to_string(),
         go_version: "go1.19".to_string(),
