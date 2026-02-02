@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: socket-swap-svc
+  labels:
+    app: socket-swap
+spec:
+  ports:
+    - name: docker-api
+      port: 2375
+      targetPort: 2375
+      protocol: TCP
+  selector:
+    app: socket-swap
+  type: ClusterIP

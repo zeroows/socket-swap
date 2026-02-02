@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: socket-swap-deployment
+  labels:
+    app: socket-swap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: socket-swap
+  template:
+    metadata:
+      labels:
+        app: socket-swap
+    spec:
+      serviceAccountName: socket-swap-sa
+      containers:
+        - name: socket-swap
+          image: socket-swap-image
+          resources:
+            requests:
+              cpu: "100m"
+              memory: 128Mi
+              ephemeral-storage: 512Mi
+            limits:
+              cpu: "500m"
+              memory: 256Mi
+              ephemeral-storage: 1Gi
+          ports:
+            - name: docker-api
+              containerPort: 2375
+              protocol: TCP
+          volumeMounts:
+            - name: docker-socket
+              mountPath: /var/run/
+          env:
+            - name: DOCKER_SOCKET_PATH
+              value: "/var/run/docker.sock"
+            - name: DOCKER_TCP_ADDR
+              value: "0.0.0.0:2375"
+            - name: KUBE_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: JOB_TTL_SECONDS
+              value: "300"
+            - name: DEFAULT_CPU_LIMIT
+              value: "500m"
+            - name: DEFAULT_MEMORY_LIMIT
+              value: "512Mi"
+            - name: DEFAULT_CPU_REQUEST
+              value: "100m"
+            - name: DEFAULT_MEMORY_REQUEST
+              value: "128Mi"
+      volumes:
+        - name: docker-socket
+          emptyDir: {}

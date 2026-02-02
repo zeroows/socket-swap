@@ -1,3 +1,11 @@
+# ⚠️ DEPRECATED: This file is kept for backward compatibility
+# Please use the new Kustomize-based manifests instead:
+#
+#   kubectl apply -k k8s/overlays/dev
+#   kubectl apply -k k8s/overlays/production
+#
+# See k8s/README.md for more information.
+
 # 1. Create the ServiceAccount
 apiVersion: v1
 kind: ServiceAccount

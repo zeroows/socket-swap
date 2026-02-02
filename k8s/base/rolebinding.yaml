@@ -1,0 +1,11 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: socket-swap-binding
+subjects:
+- kind: ServiceAccount
+  name: socket-swap-sa
+roleRef:
+  kind: Role
+  name: socket-swap-role
+  apiGroup: rbac.authorization.k8s.io

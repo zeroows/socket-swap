@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: production
+resources:
+  - ../../base
+
+images:
+  - name: socket-swap-image
+    newName: ghcr.io/zeroows/socket-swap
+    newTag: latest
+
+# Production-specific configuration
+replicas:
+  - name: socket-swap-deployment
+    count: 2
+
+# Optional: Add production-specific patches
+patches:
+  - target:
+      kind: Deployment
+      name: socket-swap-deployment
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "1000m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "512Mi"
