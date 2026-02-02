@@ -12,7 +12,7 @@ use kube::{
 };
 use std::collections::BTreeMap;
 
-#[derive(Builder)]
+#[derive(Builder, Debug, Clone)]
 #[builder(setter(into))]
 pub struct JobConfig {
     pub container_id: String,
@@ -64,6 +64,25 @@ impl JobManager {
         &self.client
     }
 
+    fn sanitize_name(&self, container_id: &str) -> String {
+        let name = format!("ss-{}", container_id);
+        if name.len() > 63 {
+            // Kubernetes names and label values are limited to 63 characters.
+            // If the name is too long, we truncate it.
+            // We keep the first 55 characters and append a short hash of the full name
+            // to ensure uniqueness while staying under the limit.
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            container_id.hash(&mut hasher);
+            let hash = format!("{:x}", hasher.finish());
+            let truncated = &name[..55];
+            format!("{}-{}", truncated, &hash[..7])
+        } else {
+            name
+        }
+    }
+
     pub fn build_job(&self, config: JobConfig) -> Job {
         // Convert environment variables from Docker format (KEY=VALUE) to Kubernetes format
         let env_vars: Vec<EnvVar> = config
@@ -83,9 +102,17 @@ impl JobManager {
             })
             .collect();
 
+        let k8s_name = self.sanitize_name(&config.container_id);
         let mut pod_labels = BTreeMap::new();
         pod_labels.insert("socket-shim".to_string(), "true".to_string());
-        pod_labels.insert("container-id".to_string(), config.container_id.clone());
+
+        // Ensure the container-id label value also fits in 63 characters
+        let label_id = if config.container_id.len() > 63 {
+            config.container_id[..63].to_string()
+        } else {
+            config.container_id.clone()
+        };
+        pod_labels.insert("container-id".to_string(), label_id);
 
         // Merge user-provided labels
         for (k, v) in config.labels {
@@ -126,7 +153,7 @@ impl JobManager {
 
         Job {
             metadata: ObjectMeta {
-                name: Some(format!("ss-{}", config.container_id)),
+                name: Some(k8s_name.clone()),
                 labels: Some(pod_labels.clone()),
                 ..Default::default()
             },
@@ -158,7 +185,7 @@ impl JobManager {
 
     pub async fn get_job(&self, container_id: &str) -> Result<Job> {
         let jobs: Api<Job> = Api::namespaced(self.client.clone(), &self.namespace);
-        let job_name = format!("ss-{}", container_id);
+        let job_name = self.sanitize_name(container_id);
 
         jobs.get(&job_name)
             .await
@@ -167,7 +194,7 @@ impl JobManager {
 
     pub async fn delete_job(&self, container_id: &str) -> Result<()> {
         let jobs: Api<Job> = Api::namespaced(self.client.clone(), &self.namespace);
-        let job_name = format!("ss-{}", container_id);
+        let job_name = self.sanitize_name(container_id);
 
         jobs.delete(&job_name, &DeleteParams::default())
             .await
@@ -234,10 +261,7 @@ mod tests {
 
         let job = manager.build_job(config);
 
-        assert_eq!(
-            job.metadata.name,
-            Some("ss-test-container".to_string())
-        );
+        assert_eq!(job.metadata.name, Some("ss-test-container".to_string()));
 
         let pod_spec = job.spec.unwrap().template.spec.unwrap();
         let container = &pod_spec.containers[0];
@@ -257,6 +281,34 @@ mod tests {
             job_labels.get("container-id"),
             Some(&container_id.to_string())
         );
+    }
+
+    #[tokio::test]
+    async fn test_build_job_long_name() {
+        let manager = mock_job_manager().await;
+        let container_id = "tool-structure-0.0.96-1d4239-f56ff6d5-fbdd-46bb-ba40-62976b1c3a";
+
+        let config = JobConfigBuilder::default()
+            .container_id(container_id)
+            .image("busybox")
+            .build()
+            .unwrap();
+
+        let job = manager.build_job(config);
+        let job_name = job.metadata.name.unwrap();
+
+        assert!(job_name.len() <= 63);
+        assert!(job_name.starts_with("ss-tool-structure-0.0.96-1d4239-"));
+
+        // Check label is also truncated if needed
+        let label_id = job
+            .metadata
+            .labels
+            .unwrap()
+            .get("container-id")
+            .unwrap()
+            .clone();
+        assert!(label_id.len() <= 63);
     }
 
     #[tokio::test]

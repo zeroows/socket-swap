@@ -13,7 +13,7 @@ pub async fn handle_ping() -> Result<Response<Full<Bytes>>, Infallible> {
 
 pub async fn handle_version() -> Result<Response<Full<Bytes>>, Infallible> {
     let version = VersionResponse {
-        version: "socket-shim-1.0.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         api_version: "1.41".to_string(),
         git_commit: "unknown".to_string(),
         go_version: "go1.19".to_string(),
@@ -52,6 +52,6 @@ mod tests {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let version: VersionResponse = serde_json::from_slice(&body).unwrap();
         assert_eq!(version.api_version, "1.41");
-        assert!(version.version.contains("socket-shim"));
+        assert!(version.version.contains("socket-swap"));
     }
 }

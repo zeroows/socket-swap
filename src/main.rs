@@ -24,7 +24,10 @@ async fn main() -> Result<()> {
         .with_level(true)
         .init();
 
-    info!("Starting Socket Shim...");
+    info!(
+        "Starting Socket Shim - version: {}",
+        env!("CARGO_PKG_VERSION")
+    );
 
     // Load configuration
     let config = Config::from_env();

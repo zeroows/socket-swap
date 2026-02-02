@@ -74,9 +74,7 @@ impl Router {
             }
 
             // Image endpoints
-            (Method::POST, "/images/create") => handle_image_create()
-                .await
-                .map(box_body),
+            (Method::POST, "/images/create") => handle_image_create().await.map(box_body),
 
             (Method::GET, path) if path.starts_with("/images/") && path.ends_with("/json") => {
                 let image_name = path

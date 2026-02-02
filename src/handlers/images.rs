@@ -6,11 +6,13 @@ pub async fn handle_image_create() -> Response<Full<Bytes>> {
     // In our Kubernetes shim model, we don't actually "pull" images to the shim.
     // Kubernetes will pull the image when the Job is created.
     // We return 200 OK to satisfy the Docker client that the "pull" was successful.
-    
+
     Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
-        .body(Full::new(Bytes::from("{\"status\":\"Image is up to date\"}")))
+        .body(Full::new(Bytes::from(
+            "{\"status\":\"Image is up to date\"}",
+        )))
         .unwrap()
 }
 
