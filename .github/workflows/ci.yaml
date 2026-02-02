@@ -22,8 +22,11 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Rust Cache
+      - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          cache-targets: true
 
       - name: Run tests
         run: cargo test --verbose
@@ -39,8 +42,11 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Rust Cache
+      - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          cache-targets: true
 
       - name: Check formatting
         run: cargo fmt -- --check
