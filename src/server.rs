@@ -4,6 +4,7 @@ use crate::handlers::{
         error_response, handle_create, handle_delete, handle_inspect, handle_start, handle_stop,
         handle_wait,
     },
+    images::{handle_image_create, handle_image_inspect},
     info::{handle_ping, handle_version},
     logs::handle_logs,
 };
@@ -65,10 +66,24 @@ impl Router {
 
             // Container lifecycle
             (Method::POST, "/containers/create") => {
+                let query = req.uri().query().map(|q| q.to_string());
                 let body = req.collect().await?.to_bytes();
-                handle_create(body, self.job_manager.clone())
+                handle_create(body, query, self.job_manager.clone())
                     .await
                     .map(|r| r.map(box_body))?
+            }
+
+            // Image endpoints
+            (Method::POST, "/images/create") => handle_image_create()
+                .await
+                .map(box_body),
+
+            (Method::GET, path) if path.starts_with("/images/") && path.ends_with("/json") => {
+                let image_name = path
+                    .trim_start_matches("/images/")
+                    .trim_end_matches("/json")
+                    .to_string();
+                handle_image_inspect(image_name).await.map(box_body)
             }
 
             (Method::POST, path)

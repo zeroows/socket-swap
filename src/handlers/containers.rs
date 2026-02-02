@@ -12,12 +12,22 @@ use uuid::Uuid;
 
 pub async fn handle_create(
     body: bytes::Bytes,
+    query: Option<String>,
     job_manager: Arc<JobManager>,
 ) -> Result<Response<Full<Bytes>>, Error> {
     let create_req: ContainerCreateRequest = serde_json::from_slice(&body)?;
 
-    // Generate a unique container ID
-    let container_id = Uuid::new_v4().to_string().replace("-", "")[..12].to_string();
+    // Determine container ID/name
+    // If a name is provided in the query string (?name=...), use it.
+    // Otherwise, generate a unique 12-character ID.
+    let container_id = if let Some(q) = query {
+        q.split('&')
+            .find(|p| p.starts_with("name="))
+            .map(|p| p.trim_start_matches("name=").to_string())
+            .unwrap_or_else(|| Uuid::new_v4().to_string().replace("-", "")[..12].to_string())
+    } else {
+        Uuid::new_v4().to_string().replace("-", "")[..12].to_string()
+    };
 
     // Convert labels to BTreeMap
     let labels: std::collections::BTreeMap<String, String> =

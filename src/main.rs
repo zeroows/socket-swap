@@ -161,11 +161,21 @@ where
             match router.route(req).await {
                 Ok(response) => Ok::<_, error::Error>(response),
                 Err(e) => {
-                    error!("Error handling request: {}", e);
-                    let err_resp = handlers::containers::error_response(
-                        hyper::StatusCode::INTERNAL_SERVER_ERROR,
-                        &e.to_string(),
-                    );
+                    let status = match e {
+                        error::Error::NotFound(_) => {
+                            info!("Resource not found: {}", e);
+                            hyper::StatusCode::NOT_FOUND
+                        }
+                        error::Error::BadRequest(_) => {
+                            error!("Bad request: {}", e);
+                            hyper::StatusCode::BAD_REQUEST
+                        }
+                        _ => {
+                            error!("Error handling request: {}", e);
+                            hyper::StatusCode::INTERNAL_SERVER_ERROR
+                        }
+                    };
+                    let err_resp = handlers::containers::error_response(status, &e.to_string());
                     Ok(err_resp.map(|body| {
                         body.map_err(|e: std::convert::Infallible| match e {})
                             .boxed_unsync()
