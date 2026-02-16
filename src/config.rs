@@ -6,6 +6,7 @@ pub struct Config {
     pub tcp_addr: Option<String>,
     pub namespace: String,
     pub ttl_seconds_after_finished: i32,
+    pub active_deadline_seconds: i64,
     pub default_cpu_limit: String,
     pub default_memory_limit: String,
     pub default_cpu_request: String,
@@ -23,6 +24,10 @@ impl Config {
                 .unwrap_or_else(|_| "300".to_string())
                 .parse()
                 .unwrap_or(300),
+            active_deadline_seconds: env::var("JOB_ACTIVE_DEADLINE_SECONDS")
+                .unwrap_or_else(|_| "3600".to_string())
+                .parse()
+                .unwrap_or(3600),
             default_cpu_limit: env::var("DEFAULT_CPU_LIMIT").unwrap_or_else(|_| "500m".to_string()),
             default_memory_limit: env::var("DEFAULT_MEMORY_LIMIT")
                 .unwrap_or_else(|_| "512Mi".to_string()),

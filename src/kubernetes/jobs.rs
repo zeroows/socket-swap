@@ -33,16 +33,19 @@ pub struct JobManager {
     client: Client,
     namespace: String,
     ttl_seconds: i32,
+    active_deadline_seconds: i64,
     cpu_limit: String,
     memory_limit: String,
     cpu_request: String,
     memory_request: String,
 }
 
+#[allow(clippy::too_many_arguments)]
 impl JobManager {
     pub async fn new(
         namespace: String,
         ttl_seconds: i32,
+        active_deadline_seconds: i64,
         cpu_limit: String,
         memory_limit: String,
         cpu_request: String,
@@ -53,6 +56,7 @@ impl JobManager {
             client,
             namespace,
             ttl_seconds,
+            active_deadline_seconds,
             cpu_limit,
             memory_limit,
             cpu_request,
@@ -69,6 +73,7 @@ impl JobManager {
         client: Client,
         namespace: String,
         ttl_seconds: i32,
+        active_deadline_seconds: i64,
         cpu_limit: String,
         memory_limit: String,
         cpu_request: String,
@@ -78,6 +83,7 @@ impl JobManager {
             client,
             namespace,
             ttl_seconds,
+            active_deadline_seconds,
             cpu_limit,
             memory_limit,
             cpu_request,
@@ -179,6 +185,8 @@ impl JobManager {
             },
             spec: Some(JobSpec {
                 ttl_seconds_after_finished: Some(self.ttl_seconds),
+                backoff_limit: Some(0),
+                active_deadline_seconds: Some(self.active_deadline_seconds),
                 template: PodTemplateSpec {
                     metadata: Some(ObjectMeta {
                         labels: Some(pod_labels),
@@ -259,6 +267,7 @@ mod tests {
             client,
             namespace: "default".to_string(),
             ttl_seconds: 300,
+            active_deadline_seconds: 3600,
             cpu_limit: "500m".to_string(),
             memory_limit: "512Mi".to_string(),
             cpu_request: "100m".to_string(),
@@ -284,9 +293,14 @@ mod tests {
 
         assert_eq!(job.metadata.name, Some("ss-test-container".to_string()));
 
-        let pod_spec = job
-            .spec
-            .expect("Job should have a spec")
+        let job_spec = job.spec.expect("Job should have a spec");
+
+        // Check cleanup fields
+        assert_eq!(job_spec.ttl_seconds_after_finished, Some(300));
+        assert_eq!(job_spec.backoff_limit, Some(0));
+        assert_eq!(job_spec.active_deadline_seconds, Some(3600));
+
+        let pod_spec = job_spec
             .template
             .spec
             .expect("Job template should have a spec");

@@ -37,6 +37,10 @@ async fn main() -> Result<()> {
     }
     info!("Namespace: {}", config.namespace);
     info!("TTL seconds: {}", config.ttl_seconds_after_finished);
+    info!(
+        "Active deadline seconds: {}",
+        config.active_deadline_seconds
+    );
     info!("Default CPU limit: {}", config.default_cpu_limit);
     info!("Default Memory limit: {}", config.default_memory_limit);
     info!("Default CPU request: {}", config.default_cpu_request);
@@ -48,6 +52,7 @@ async fn main() -> Result<()> {
         JobManager::new(
             config.namespace.clone(),
             config.ttl_seconds_after_finished,
+            config.active_deadline_seconds,
             config.default_cpu_limit.clone(),
             config.default_memory_limit.clone(),
             config.default_cpu_request.clone(),

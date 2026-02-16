@@ -348,6 +348,7 @@ mod tests {
             JobManager::new(
                 "default".to_string(),
                 300,
+                3600,
                 "500m".to_string(),
                 "512Mi".to_string(),
                 "100m".to_string(),
@@ -362,6 +363,7 @@ mod tests {
                         .expect("Failed to create mock Kubernetes client from config"),
                     "default".to_string(),
                     300,
+                    3600,
                     "500m".to_string(),
                     "512Mi".to_string(),
                     "100m".to_string(),
