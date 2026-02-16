@@ -4,24 +4,28 @@ A Rust-based proxy that translates Docker API calls into Kubernetes Job operatio
 
 ## Architecture
 
-SocketSwap acts as a proxy that listens on both a Unix socket (`/var/run/docker.sock`) and TCP port (`:2375`), accepts Docker CLI commands, and translates them into native Kubernetes Job resources.
+SocketSwap listens on both a Unix socket (`/var/run/docker.sock`) and TCP port (`:2375`), accepts Docker API requests, and translates them into native Kubernetes Job resources.
 
 **Deployment Patterns:**
 - **Sidecar Pattern**: Share Unix socket via `emptyDir` volume (same Pod)
 - **Service Pattern**: Access via TCP from anywhere in the cluster (remote Pods)
 
 ```
-┌─────────────────────────────────────────┐
-│          Agent Pod                      │
-│  ┌──────────────┐   ┌───────────────┐  │
-│  │  AI Agent /  │   │ Rust Socket   │  │
-│  │ Legacy App   │──▶│    Shim       │  │
-│  │              │   │               │  │
-│  └──────────────┘   └───────┬───────┘  │
-│   DOCKER_HOST=              │          │
-│   unix:///var/run/          │          │
-│        docker.sock          │          │
-└─────────────────────────────┼──────────┘
+                                 ┌─────────────┐
+                                 │  Remote Pod  │
+                                 │  (any ns)    │
+                                 └──────┬───────┘
+                                        │ TCP :2375
+┌───────────────────────────────────────┼──────────┐
+│          SocketSwap Pod               │          │
+│  ┌──────────────┐   ┌────────────────┐│          │
+│  │  AI Agent /  │   │  SocketSwap   ◀┘          │
+│  │  Legacy App  │──▶│               │            │
+│  └──────────────┘   └───────┬───────┘            │
+│   DOCKER_HOST=              │                    │
+│   unix:///var/run/          │                    │
+│        docker.sock          │                    │
+└─────────────────────────────┼────────────────────┘
                               │
                               ▼
                     ┌─────────────────┐
@@ -30,7 +34,7 @@ SocketSwap acts as a proxy that listens on both a Unix socket (`/var/run/docker.
                              │
                              ▼
                     ┌─────────────────┐
-                    │   Jobs/Pods     │
+                    │   Jobs / Pods   │
                     └─────────────────┘
 ```
 
@@ -39,30 +43,35 @@ SocketSwap acts as a proxy that listens on both a Unix socket (`/var/run/docker.
 - **Zero Migration**: Existing Docker-based code works without modifications
 - **Secure**: No privileged containers or host Docker socket access required
 - **Namespace-scoped RBAC**: Limited permissions for Job management
-- **Automatic Cleanup**: Jobs are deleted after completion (configurable TTL)
+- **Automatic Cleanup**: Jobs cleaned up via TTL, backoff limit, and active deadline
 - **Docker API Compatible**: Supports common Docker CLI operations
-- **Log Streaming**: Full support for Docker's multiplexed log format
+- **Log Streaming**: Full support for Docker's multiplexed log format with follow and tail
+- **Multi-arch**: Pre-built binaries and images for amd64 and arm64
 
 ## Supported Docker API Endpoints
 
-| Endpoint | Method | Status |
-|----------|--------|--------|
-| `/_ping` | GET | ✅ Implemented |
-| `/version` | GET | ✅ Implemented |
-| `/containers/create` | POST | ✅ Implemented |
-| `/containers/{id}/start` | POST | ✅ Implemented (no-op) |
-| `/containers/{id}/stop` | POST | ✅ Implemented |
-| `/containers/{id}/json` | GET | ✅ Implemented |
-| `/containers/{id}/logs` | GET | ✅ Implemented |
-| `/containers/{id}/wait` | POST | ✅ Implemented |
-| `/containers/{id}` | DELETE | ✅ Implemented |
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/_ping` | GET | Health check |
+| `/version` | GET | API version info (reports 1.41) |
+| `/containers/create` | POST | Creates a Kubernetes Job |
+| `/containers/{id}/start` | POST | No-op (Jobs auto-start) |
+| `/containers/{id}/stop` | POST | Deletes the Job |
+| `/containers/{id}/json` | GET | Inspects Job/Pod state |
+| `/containers/{id}/logs` | GET | Streams Pod logs (`?follow=true&tail=N`) |
+| `/containers/{id}/wait` | POST | Waits for Job completion |
+| `/containers/{id}` | DELETE | Removes the Job |
+| `/images/create` | POST | Returns 200 (images pulled at Job creation) |
+| `/images/{name}/json` | GET | Returns minimal image metadata |
+| `/volumes/{name}` | GET | Returns minimal volume metadata |
+
+API version prefixes (`/v1.41`, `/v1.40`, `/v1.39`) are supported and stripped before routing.
 
 ## Building
 
 ### Prerequisites
 
 - Rust 1.75 or later
-- Docker (for building container image)
 - Kubernetes cluster (for deployment)
 
 ### Build Binary
@@ -73,45 +82,41 @@ cargo build --release
 
 ### Build Docker Image
 
+The project uses a multi-arch Dockerfile at `devops/Dockerfile` with a Chainguard distroless base image:
+
 ```bash
-docker build -t socket-shim:latest .
+# Build binaries first (or let CI handle it)
+cargo build --release --target x86_64-unknown-linux-musl
+cp target/x86_64-unknown-linux-musl/release/socket-swap ./socket-swap-amd64
+
+docker build -f devops/Dockerfile -t socket-swap:latest --build-arg BINARY_NAME=socket-swap .
 ```
 
 ## Deployment
 
-### 1. Apply RBAC Configuration
+SocketSwap uses [Kustomize](https://kustomize.io/) for Kubernetes manifests. See [k8s/README.md](k8s/README.md) for full details.
+
+### Quick Start
 
 ```bash
-kubectl apply -f k8s/rbac.yaml
+# Development
+kubectl apply -k k8s/overlays/dev
+
+# Production
+kubectl apply -k k8s/overlays/production
 ```
 
-This creates:
-- ServiceAccount: `job-manager-sa`
-- Role: `job-manager-role` (with permissions for jobs, pods, logs)
-- RoleBinding: `job-manager-binding`
+### Verify
 
-### 2. Deploy as Sidecar
-
-Choose one of the deployment options:
-
-**Option A: Single Pod (for testing)**
 ```bash
-kubectl apply -f k8s/pod.yaml
+kubectl get all -l app=socket-swap
+kubectl run -it --rm test --image=curlimages/curl --restart=Never -- \
+  curl http://socket-swap-svc:2375/_ping
 ```
 
-**Option B: Deployment + Service (for production)**
-```bash
-kubectl apply -f k8s/deployment.yaml
-kubectl apply -f k8s/service.yaml
-```
+### Configure Your Application
 
-Edit the deployment to replace `your-agent:latest` with your actual AI agent or legacy application image.
-
-### 3. Configure Your Application
-
-**Option A: Unix Socket (Sidecar pattern)**
-
-Set the `DOCKER_HOST` environment variable in your application container:
+**Unix Socket (Sidecar pattern):**
 
 ```yaml
 env:
@@ -119,86 +124,59 @@ env:
     value: "unix:///var/run/docker.sock"
 ```
 
-**Option B: TCP/HTTP (Remote access)**
-
-Access from any Pod in the cluster:
+**TCP/HTTP (Remote access):**
 
 ```yaml
 env:
   - name: DOCKER_HOST
-    value: "tcp://socket-swap.default.svc:2375"
-```
-
-Or from Python:
-
-```python
-import docker
-# From within the same namespace
-client = docker.DockerClient(base_url='http://socket-swap.default.svc:2375')
-
-# From a different namespace
-client = docker.DockerClient(base_url='http://socket-swap.mynamespace.svc.cluster.local:2375')
+    value: "tcp://socket-swap-svc:2375"
 ```
 
 ## Configuration
 
-The shim is configured via environment variables:
+All settings are configured via environment variables:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DOCKER_SOCKET_PATH` | Path to Unix socket | `/var/run/docker.sock` |
-| `DOCKER_TCP_ADDR` | TCP address to listen on (optional) | None (disabled) |
+| `DOCKER_TCP_ADDR` | TCP listen address (optional) | None (disabled) |
 | `KUBE_NAMESPACE` | Kubernetes namespace for Jobs | `default` |
-| `JOB_TTL_SECONDS` | Seconds before Job cleanup | `300` |
-| `DEFAULT_CPU_LIMIT` | Default CPU limit for spawned Jobs | `500m` |
-| `DEFAULT_MEMORY_LIMIT` | Default memory limit for spawned Jobs | `512Mi` |
-| `DEFAULT_CPU_REQUEST` | Default CPU request for spawned Jobs | `100m` |
-| `DEFAULT_MEMORY_REQUEST` | Default memory request for spawned Jobs | `128Mi` |
+| `JOB_TTL_SECONDS` | Seconds before completed Job cleanup | `300` |
+| `JOB_ACTIVE_DEADLINE_SECONDS` | Max seconds a Job can run before termination | `3600` |
+| `DEFAULT_CPU_LIMIT` | CPU limit for spawned Jobs | `500m` |
+| `DEFAULT_MEMORY_LIMIT` | Memory limit for spawned Jobs | `512Mi` |
+| `DEFAULT_CPU_REQUEST` | CPU request for spawned Jobs | `100m` |
+| `DEFAULT_MEMORY_REQUEST` | Memory request for spawned Jobs | `128Mi` |
 
 ### Listener Modes
 
-**Unix Socket Only (Default):**
 ```bash
+# Unix Socket only (default)
 export DOCKER_SOCKET_PATH=/var/run/docker.sock
-# DOCKER_TCP_ADDR not set
-```
 
-**Unix Socket + TCP:**
-```bash
+# Unix Socket + TCP
 export DOCKER_SOCKET_PATH=/var/run/docker.sock
 export DOCKER_TCP_ADDR=0.0.0.0:2375
-```
 
-**TCP Only:**
-```bash
+# TCP only
 export DOCKER_TCP_ADDR=0.0.0.0:2375
-# Unix socket will still be created but not required
 ```
 
 ## Usage Examples
 
-> 📖 **For detailed TCP/HTTP usage, see the [TCP Quick Start Guide](docs/QUICK_START_TCP.md)**
-
-### From Docker CLI
-
-```bash
-# Ping the daemon
-docker -H unix:///var/run/docker.sock ps
-
-# Run a container (creates a Kubernetes Job)
-docker -H unix:///var/run/docker.sock run busybox echo "Hello"
-
-# View logs
-docker -H unix:///var/run/docker.sock logs <container-id>
-```
-
 ### From Python (docker-py)
 
-**Using Unix Socket (Sidecar):**
 ```python
 import docker
 
+# Sidecar (Unix socket)
 client = docker.DockerClient(base_url='unix:///var/run/docker.sock')
+
+# Remote (TCP) - same namespace
+client = docker.DockerClient(base_url='http://socket-swap-svc:2375')
+
+# Remote (TCP) - different namespace
+client = docker.DockerClient(base_url='http://socket-swap-svc.production.svc.cluster.local:2375')
 
 # Create and run a container (creates a K8s Job)
 container = client.containers.run(
@@ -212,38 +190,33 @@ logs = container.logs()
 print(logs.decode())
 ```
 
-**Using TCP/HTTP (Remote):**
-```python
-import docker
+### From Docker CLI
 
-# From anywhere in the cluster
-client = docker.DockerClient(base_url='http://socket-swap.default.svc:2375')
+```bash
+# Via TCP
+export DOCKER_HOST=tcp://socket-swap-svc:2375
+docker run busybox echo "Hello"
+docker logs <container-id>
 
-# Same API works!
-container = client.containers.run(
-    'busybox',
-    'echo Hello from Kubernetes!',
-    detach=True
-)
-
-logs = container.logs()
-print(logs.decode())
+# Via Unix socket (sidecar)
+docker -H unix:///var/run/docker.sock run busybox echo "Hello"
 ```
 
 ### From curl
 
 ```bash
+# Ping
+curl http://socket-swap-svc:2375/_ping
+
 # Create a container
-curl --unix-socket /var/run/docker.sock \
-  -X POST \
-  http://localhost/v1.41/containers/create \
+curl -X POST http://socket-swap-svc:2375/v1.41/containers/create \
   -H "Content-Type: application/json" \
   -d '{"Image": "busybox", "Cmd": ["echo", "Hello"]}'
 ```
 
 ## How It Works
 
-### Docker → Kubernetes Translation
+### Docker to Kubernetes Translation
 
 | Docker Concept | Kubernetes Resource |
 |----------------|---------------------|
@@ -251,53 +224,47 @@ curl --unix-socket /var/run/docker.sock \
 | Container ID | Job label: `container-id` |
 | Image | Pod container image |
 | Env vars | Pod container env |
-| Command | Pod container args |
+| Command / Entrypoint | Pod container args / command |
 | Logs | Pod logs (via K8s API) |
 
 ### Job Lifecycle
 
-1. **Create**: Client sends `POST /containers/create`
-   - Shim generates unique container ID
-   - Creates Kubernetes Job with labels
-   - Returns container ID to client
+1. **Create** (`POST /containers/create`): Generates a unique container ID, creates a Kubernetes Job with labels, returns the ID.
 
-2. **Start**: Client sends `POST /containers/{id}/start`
-   - No-op (Jobs start automatically)
-   - Returns success
+2. **Start** (`POST /containers/{id}/start`): No-op since Kubernetes Jobs start automatically.
 
-3. **Logs**: Client sends `GET /containers/{id}/logs`
-   - Finds Pod for Job
-   - Streams logs with Docker multiplex protocol
+3. **Logs** (`GET /containers/{id}/logs`): Finds the Pod for the Job, streams logs using Docker's multiplex protocol. Supports `?follow=true` and `?tail=N`.
 
-4. **Cleanup**: Automatic after completion
-   - Job deleted after `ttlSecondsAfterFinished`
-   - Or manually via DELETE endpoint
+4. **Wait** (`POST /containers/{id}/wait`): Polls the Job until completion and returns the exit code.
 
-## Security Considerations
+5. **Cleanup**: Automatic via three mechanisms:
+   - `ttlSecondsAfterFinished` deletes completed Jobs (default: 300s)
+   - `backoffLimit: 0` prevents retry Pods on failure
+   - `activeDeadlineSeconds` terminates long-running Jobs (default: 3600s)
 
-✅ **No privileged containers required**  
-✅ **No host Docker socket access**  
-✅ **Namespace-scoped RBAC**  
-✅ **Limited to Job creation/deletion**  
+### Job Name Sanitization
 
-Optional security enhancements:
-- Image allowlist validation
-- Resource limits on created Jobs
-- Network policies for spawned Pods
-- Pod Security Standards enforcement
+Kubernetes resource names are limited to 63 characters. SocketSwap prefixes names with `ss-` and truncates long names using a CRC32 hash suffix to ensure uniqueness.
+
+## Security
+
+- No privileged containers required
+- No host Docker socket access
+- Namespace-scoped RBAC (Jobs, Pods, Pods/log only)
+- Resource limits enforced on all spawned Jobs
+- TCP endpoint has **no authentication** - use NetworkPolicies to restrict access
 
 ## Limitations
 
-- **Volumes**: Host volume mounts not supported (use PVCs in Job spec)
+- **Volumes**: Host volume mounts not supported
 - **Networking**: Port publishing not implemented
 - **Interactive**: No TTY or stdin support
-- **Images**: Must be accessible from cluster
+- **Images**: Must be accessible from the cluster's container runtime
 
 ## Troubleshooting
 
 ### Socket not accessible
 
-Check permissions on `/var/run/docker.sock`:
 ```bash
 ls -l /var/run/docker.sock
 # Should show: srw-rw-rw-
@@ -305,40 +272,31 @@ ls -l /var/run/docker.sock
 
 ### Jobs not appearing
 
-Check RBAC permissions:
 ```bash
-kubectl auth can-i create jobs --as=system:serviceaccount:default:job-manager-sa
+kubectl auth can-i create jobs --as=system:serviceaccount:<ns>:socket-swap-sa
 ```
 
 ### Logs not streaming
 
-Check pod logs for errors:
 ```bash
-kubectl logs <pod-name> -c rust-shim
+kubectl logs -l app=socket-swap -f
 ```
 
 ### TCP connection refused
 
-Check if the Service exists and matches the selector:
 ```bash
-kubectl get svc socket-swap
-kubectl get pods -l app=socket-shim
-```
-
-Test connectivity from another Pod:
-```bash
-kubectl run -it --rm debug --image=busybox --restart=Never -- \
-  wget -O- http://socket-swap.default.svc:2375/_ping
+kubectl get svc socket-swap-svc
+kubectl get endpoints socket-swap-svc
+kubectl get pods -l app=socket-swap
 ```
 
 ## Documentation
 
-📚 **Guides and References:**
-
-- **[TCP Support Guide](docs/TCP_SUPPORT.md)** - Complete TCP/HTTP implementation details and architecture
-- **[TCP Quick Start](docs/QUICK_START_TCP.md)** - Step-by-step guide for using TCP from anywhere in the cluster
-- **[Python TCP Example](examples/tcp-client-example.py)** - Complete working Python client
-- **[Test Deployment](examples/test-deployment.yaml)** - Kubernetes Job for testing TCP connectivity
+- **[Kubernetes Manifests](k8s/README.md)** - Kustomize-based deployment guide
+- **[TCP Quick Start](docs/QUICK_START_TCP.md)** - Using SocketSwap via TCP from anywhere in the cluster
+- **[TCP Architecture](docs/TCP_SUPPORT.md)** - TCP implementation details and security considerations
+- **[Examples](examples/README.md)** - Python client examples and test deployments
+- **[Documentation Index](docs/README.md)** - Full documentation overview
 
 ## Development
 
@@ -354,6 +312,8 @@ cargo run
 
 ```bash
 cargo test
+cargo clippy -- -D warnings
+cargo fmt -- --check
 ```
 
 ## License
@@ -363,4 +323,3 @@ MIT
 ## Contributing
 
 Contributions welcome! Please open an issue or PR.
-

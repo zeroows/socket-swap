@@ -12,7 +12,6 @@ k8s/
 │   ├── serviceaccount.yaml
 │   ├── role.yaml
 │   ├── rolebinding.yaml
-│   ├── waypoint.yaml       # Istio service mesh waypoint
 │   └── kustomization.yaml
 ├── overlays/
 │   ├── dev/                # Development environment
@@ -110,6 +109,7 @@ The deployment supports the following environment variables:
 | `DOCKER_TCP_ADDR` | `0.0.0.0:2375` | TCP address to listen on |
 | `KUBE_NAMESPACE` | (from fieldRef) | Kubernetes namespace |
 | `JOB_TTL_SECONDS` | `300` | TTL for completed Jobs |
+| `JOB_ACTIVE_DEADLINE_SECONDS` | `3600` | Max seconds a Job can run |
 | `DEFAULT_CPU_LIMIT` | `500m` | Default CPU limit for Jobs |
 | `DEFAULT_MEMORY_LIMIT` | `512Mi` | Default memory limit for Jobs |
 | `DEFAULT_CPU_REQUEST` | `100m` | Default CPU request for Jobs |
@@ -124,30 +124,6 @@ The deployment supports the following environment variables:
 **Production** (with overlay):
 - Limits increased to: 1000m CPU, 512Mi RAM
 - Replicas: 2
-
-## Service Mesh Support
-
-The manifests include an Istio waypoint gateway for ambient mesh support:
-
-```yaml
-# k8s/base/waypoint.yaml
-apiVersion: gateway.networking.k8s.io/v1
-kind: Gateway
-metadata:
-  name: socket-swap-waypoint
-spec:
-  gatewayClassName: istio-waypoint
-  listeners:
-  - name: mesh
-    protocol: HBONE
-    port: 15008
-```
-
-To enable waypoint routing, label your namespace:
-
-```bash
-kubectl label namespace dev istio.io/use-waypoint=socket-swap-waypoint
-```
 
 ## Customization with Kustomize
 

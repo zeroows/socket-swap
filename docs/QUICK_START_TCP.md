@@ -48,7 +48,7 @@ container = client.containers.run('busybox', 'echo Hello!', detach=True)
 print(container.logs().decode())
 ```
 
-### 2. From Python (Different Namespace)
+### 3. From Python (Different Namespace)
 
 ```python
 import docker
@@ -62,7 +62,7 @@ container = client.containers.run('alpine', 'ls -la', detach=True)
 print(container.logs().decode())
 ```
 
-### 3. From curl (Testing)
+### 4. From curl (Testing)
 
 ```bash
 # Ping endpoint
@@ -80,7 +80,7 @@ kubectl run -it --rm test --image=curlimages/curl --restart=Never -- \
   -d '{"Image":"busybox","Cmd":["echo","hello"]}'
 ```
 
-### 4. From Go
+### 5. From Go
 
 ```go
 package main
@@ -131,7 +131,7 @@ func main() {
 }
 ```
 
-### 5. From Node.js
+### 6. From Node.js
 
 ```javascript
 const Docker = require('dockerode');

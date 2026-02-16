@@ -69,7 +69,7 @@ jobs:
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ runner.os }}-${{ matrix.rust_target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: release-${{ matrix.rust_target }}
           cache-targets: true
 
       - name: Build release binary
@@ -239,26 +239,23 @@ jobs:
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## 🚀 Deployment Guide" >> $GITHUB_STEP_SUMMARY
-          echo "To deploy version **${{ github.ref_name }}**, apply the Kubernetes manifests:" >> $GITHUB_STEP_SUMMARY
+          echo "To deploy version **${{ github.ref_name }}**:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "# 1. Apply RBAC" >> $GITHUB_STEP_SUMMARY
-          echo "kubectl apply -f k8s/rbac.yaml" >> $GITHUB_STEP_SUMMARY
+          echo "# Deploy to production" >> $GITHUB_STEP_SUMMARY
+          echo "kubectl apply -k k8s/overlays/production" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "# 2. Deploy the shim" >> $GITHUB_STEP_SUMMARY
-          echo "kubectl apply -f k8s/deployment.yaml" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "# 3. Expose via Service" >> $GITHUB_STEP_SUMMARY
-          echo "kubectl apply -f k8s/service.yaml" >> $GITHUB_STEP_SUMMARY
+          echo "# Or deploy to dev" >> $GITHUB_STEP_SUMMARY
+          echo "kubectl apply -k k8s/overlays/dev" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           echo "## 📖 Quick Start (Python)" >> $GITHUB_STEP_SUMMARY
           echo "Access the Docker API from anywhere in your cluster:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`python" >> $GITHUB_STEP_SUMMARY
           echo "import docker" >> $GITHUB_STEP_SUMMARY
-          echo "client = docker.DockerClient(base_url='http://socket-swap.default.svc:2375')" >> $GITHUB_STEP_SUMMARY
+          echo "client = docker.DockerClient(base_url='http://socket-swap-svc:2375')" >> $GITHUB_STEP_SUMMARY
           echo "container = client.containers.run('busybox', 'echo Hello!', detach=True)" >> $GITHUB_STEP_SUMMARY
           echo "print(container.logs().decode())" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

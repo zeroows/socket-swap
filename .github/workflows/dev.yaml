@@ -59,7 +59,7 @@ jobs:
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ runner.os }}-${{ matrix.rust_target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: release-${{ matrix.rust_target }}
           cache-targets: true
 
       - name: Build release binary
