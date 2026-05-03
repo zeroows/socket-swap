@@ -42,7 +42,7 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         - name: JOB_TTL_SECONDS
-          value: "300"
+          value: "0"
     
     # THE USER SCRIPT: Thinks it's talking to Docker
     - name: legacy-script

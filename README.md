@@ -141,7 +141,7 @@ All settings are configured via environment variables:
 | `DOCKER_SOCKET_PATH` | Path to Unix socket | `/var/run/docker.sock` |
 | `DOCKER_TCP_ADDR` | TCP listen address (optional) | None (disabled) |
 | `KUBE_NAMESPACE` | Kubernetes namespace for Jobs | `default` |
-| `JOB_TTL_SECONDS` | Seconds before completed Job cleanup | `300` |
+| `JOB_TTL_SECONDS` | Kubernetes-side TTL for completed Jobs (`0` = rely on socket-swap's active cleanup loop) | `0` |
 | `JOB_ACTIVE_DEADLINE_SECONDS` | Max seconds a Job can run before termination | `3600` |
 | `DEFAULT_CPU_LIMIT` | CPU limit for spawned Jobs | `500m` |
 | `DEFAULT_MEMORY_LIMIT` | Memory limit for spawned Jobs | `512Mi` |

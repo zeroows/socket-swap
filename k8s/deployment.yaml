@@ -53,7 +53,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: JOB_TTL_SECONDS
-              value: "300"
+              value: "0"
         
         # YOUR AI AGENT: Communicates via Docker API (Unix socket or TCP)
         # - name: ai-agent

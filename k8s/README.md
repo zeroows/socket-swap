@@ -108,7 +108,7 @@ The deployment supports the following environment variables:
 | `DOCKER_SOCKET_PATH` | `/var/run/docker.sock` | Path to Docker socket |
 | `DOCKER_TCP_ADDR` | `0.0.0.0:2375` | TCP address to listen on |
 | `KUBE_NAMESPACE` | (from fieldRef) | Kubernetes namespace |
-| `JOB_TTL_SECONDS` | `300` | TTL for completed Jobs |
+| `JOB_TTL_SECONDS` | `0` | Kubernetes-side TTL for completed Jobs (socket-swap's active cleanup loop is the primary mechanism; set to a positive value to also use the cluster's TTL controller) |
 | `JOB_ACTIVE_DEADLINE_SECONDS` | `3600` | Max seconds a Job can run |
 | `DEFAULT_CPU_LIMIT` | `500m` | Default CPU limit for Jobs |
 | `DEFAULT_MEMORY_LIMIT` | `512Mi` | Default memory limit for Jobs |

@@ -194,6 +194,9 @@ impl JobManager {
                 requests: Some(requests),
                 claims: None,
             }),
+            // Capture last lines of stdout/stderr into Pod's terminated.message on failure,
+            // so failed jobs remain debuggable after the runtime GC's the log files.
+            termination_message_policy: Some("FallbackToLogsOnError".to_string()),
             ..Default::default()
         };
 
@@ -398,6 +401,10 @@ mod tests {
         let container = &pod_spec.containers[0];
 
         assert_eq!(container.image, Some(image.to_string()));
+        assert_eq!(
+            container.termination_message_policy,
+            Some("FallbackToLogsOnError".to_string())
+        );
 
         // Check env vars
         let env_vars = container

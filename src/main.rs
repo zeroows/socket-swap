@@ -68,16 +68,20 @@ async fn main() -> Result<()> {
     // Spawn background cleanup task: deletes completed/failed jobs (and their pods) every 60s.
     // The first tick fires immediately, clearing any backlog on startup.
     let cleanup_job_manager = job_manager.clone();
+    info!("Starting background job cleanup task (interval: 60s)");
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
         loop {
             interval.tick().await;
             let (deleted, marked) = cleanup_job_manager.cleanup_completed_jobs().await;
-            if deleted > 0 {
-                tracing::info!("Cleanup: deleted {} job(s)", deleted);
-            }
-            if marked > 0 {
-                tracing::info!("Cleanup: marked {} failed job(s) for removal", marked);
+            if deleted > 0 || marked > 0 {
+                tracing::info!(
+                    "Cleanup sweep: deleted {} job(s), marked {} failed job(s) for removal",
+                    deleted,
+                    marked
+                );
+            } else {
+                tracing::debug!("Cleanup sweep: no jobs to clean");
             }
         }
     });
