@@ -74,15 +74,7 @@ async fn main() -> Result<()> {
         loop {
             interval.tick().await;
             let (deleted, marked) = cleanup_job_manager.cleanup_completed_jobs().await;
-            if deleted > 0 || marked > 0 {
-                tracing::info!(
-                    "Cleanup sweep: deleted {} job(s), marked {} failed job(s) for removal",
-                    deleted,
-                    marked
-                );
-            } else {
-                tracing::debug!("Cleanup sweep: no jobs to clean");
-            }
+            tracing::info!("Cleanup sweep: deleted={} marked={}", deleted, marked);
         }
     });
 

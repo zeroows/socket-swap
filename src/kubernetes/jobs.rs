@@ -2,7 +2,7 @@ use crate::error::{Error, Result};
 use derive_builder::Builder;
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
-    Container, EnvVar, PodSpec, PodTemplateSpec, ResourceRequirements,
+    Container, EnvVar, Pod, PodSpec, PodTemplateSpec, ResourceRequirements,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
@@ -42,6 +42,25 @@ pub fn classify_job(job: &Job) -> CleanupAction {
         }
     }
     CleanupAction::Skip
+}
+
+pub fn classify_pod(pod: &Pod) -> CleanupAction {
+    let is_pending = pod
+        .metadata
+        .labels
+        .as_ref()
+        .map(|l| l.contains_key(PENDING_CLEANUP_LABEL))
+        .unwrap_or(false);
+
+    if is_pending {
+        return CleanupAction::Delete;
+    }
+
+    match pod.status.as_ref().and_then(|s| s.phase.as_deref()) {
+        Some("Succeeded") => CleanupAction::Delete,
+        Some("Failed") => CleanupAction::Mark,
+        _ => CleanupAction::Skip,
+    }
 }
 
 #[derive(Builder, Debug, Clone)]
@@ -322,6 +341,56 @@ impl JobManager {
                 CleanupAction::Skip => {}
             }
         }
+        // Sweep orphan pods: pods whose parent Job was already deleted (e.g. by the old
+        // TTL controller) but were not cascade-deleted, so they linger indefinitely.
+        // We use the same classify logic as Jobs: Succeeded → delete immediately,
+        // Failed → mark first, delete next pass.
+        let pods_api: Api<Pod> = Api::namespaced(self.client.clone(), &self.namespace);
+        let pod_list = match pods_api.list(&lp).await {
+            Ok(list) => list,
+            Err(e) => {
+                tracing::warn!("Failed to list pods for cleanup: {}", e);
+                return (deleted, marked);
+            }
+        };
+
+        for pod in pod_list.items {
+            let name = match pod.metadata.name.as_deref() {
+                Some(n) => n.to_string(),
+                None => continue,
+            };
+
+            match classify_pod(&pod) {
+                CleanupAction::Delete => {
+                    match pods_api.delete(&name, &DeleteParams::default()).await {
+                        Ok(_) => {
+                            tracing::info!("Deleted orphan pod: {}", name);
+                            deleted += 1;
+                        }
+                        Err(e) => tracing::warn!("Failed to delete pod {}: {}", name, e),
+                    }
+                }
+                CleanupAction::Mark => {
+                    let patch = serde_json::json!({
+                        "metadata": { "labels": { PENDING_CLEANUP_LABEL: "true" } }
+                    });
+                    match pods_api
+                        .patch(&name, &PatchParams::default(), &Patch::Merge(patch))
+                        .await
+                    {
+                        Ok(_) => {
+                            tracing::info!("Marked failed orphan pod for removal: {}", name);
+                            marked += 1;
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to mark pod {} for removal: {}", name, e)
+                        }
+                    }
+                }
+                CleanupAction::Skip => {}
+            }
+        }
+
         (deleted, marked)
     }
 
@@ -608,5 +677,83 @@ mod tests {
         labels.insert("some-other-label".to_string(), "value".to_string());
         job.metadata.labels = Some(labels);
         assert_eq!(classify_job(&job), CleanupAction::Delete);
+    }
+
+    // --- classify_pod tests ---
+
+    fn pod_with_phase(phase: &str) -> Pod {
+        use k8s_openapi::api::core::v1::PodStatus;
+        Pod {
+            metadata: ObjectMeta {
+                name: Some("ss-test-pod".to_string()),
+                ..Default::default()
+            },
+            status: Some(PodStatus {
+                phase: Some(phase.to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn with_pending_pod_label(mut pod: Pod) -> Pod {
+        let mut labels = pod.metadata.labels.unwrap_or_default();
+        labels.insert(PENDING_CLEANUP_LABEL.to_string(), "true".to_string());
+        pod.metadata.labels = Some(labels);
+        pod
+    }
+
+    #[test]
+    fn test_classify_succeeded_pod_is_deleted() {
+        assert_eq!(
+            classify_pod(&pod_with_phase("Succeeded")),
+            CleanupAction::Delete
+        );
+    }
+
+    #[test]
+    fn test_classify_failed_unmarked_pod_is_marked() {
+        assert_eq!(classify_pod(&pod_with_phase("Failed")), CleanupAction::Mark);
+    }
+
+    #[test]
+    fn test_classify_failed_marked_pod_is_deleted() {
+        let pod = with_pending_pod_label(pod_with_phase("Failed"));
+        assert_eq!(classify_pod(&pod), CleanupAction::Delete);
+    }
+
+    #[test]
+    fn test_classify_running_pod_is_skipped() {
+        assert_eq!(
+            classify_pod(&pod_with_phase("Running")),
+            CleanupAction::Skip
+        );
+    }
+
+    #[test]
+    fn test_classify_pending_pod_is_skipped() {
+        assert_eq!(
+            classify_pod(&pod_with_phase("Pending")),
+            CleanupAction::Skip
+        );
+    }
+
+    #[test]
+    fn test_classify_pod_without_status_is_skipped() {
+        let pod = Pod {
+            metadata: ObjectMeta {
+                name: Some("ss-test-pod".to_string()),
+                ..Default::default()
+            },
+            status: None,
+            ..Default::default()
+        };
+        assert_eq!(classify_pod(&pod), CleanupAction::Skip);
+    }
+
+    #[test]
+    fn test_classify_pod_pending_label_takes_precedence() {
+        let pod = with_pending_pod_label(pod_with_phase("Succeeded"));
+        assert_eq!(classify_pod(&pod), CleanupAction::Delete);
     }
 }
