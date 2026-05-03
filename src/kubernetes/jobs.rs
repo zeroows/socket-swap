@@ -12,6 +12,38 @@ use kube::{
 };
 use std::collections::BTreeMap;
 
+const PENDING_CLEANUP_LABEL: &str = "socket-swap/pending-cleanup";
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum CleanupAction {
+    Skip,
+    Delete,
+    Mark,
+}
+
+pub fn classify_job(job: &Job) -> CleanupAction {
+    let is_pending = job
+        .metadata
+        .labels
+        .as_ref()
+        .map(|l| l.contains_key(PENDING_CLEANUP_LABEL))
+        .unwrap_or(false);
+
+    if is_pending {
+        return CleanupAction::Delete;
+    }
+
+    if let Some(status) = &job.status {
+        if status.succeeded.unwrap_or(0) > 0 {
+            return CleanupAction::Delete;
+        }
+        if status.failed.unwrap_or(0) > 0 {
+            return CleanupAction::Mark;
+        }
+    }
+    CleanupAction::Skip
+}
+
 #[derive(Builder, Debug, Clone)]
 #[builder(setter(into))]
 pub struct JobConfig {
@@ -236,8 +268,6 @@ impl JobManager {
     // Failed jobs are labelled "socket-swap/pending-cleanup=true" on first detection
     // and deleted on the subsequent pass, giving a 60-second inspection window.
     pub async fn cleanup_completed_jobs(&self) -> (usize, usize) {
-        const PENDING_LABEL: &str = "socket-swap/pending-cleanup";
-
         let jobs_api: Api<Job> = Api::namespaced(self.client.clone(), &self.namespace);
         let lp = ListParams::default().labels("socket-shim=true");
 
@@ -263,36 +293,17 @@ impl JobManager {
                 None => continue,
             };
 
-            let is_pending = job
-                .metadata
-                .labels
-                .as_ref()
-                .map(|l| l.contains_key(PENDING_LABEL))
-                .unwrap_or(false);
-
-            if is_pending {
-                // Second pass: delete the previously-marked failed job
-                match jobs_api.delete(&name, &dp).await {
+            match classify_job(&job) {
+                CleanupAction::Delete => match jobs_api.delete(&name, &dp).await {
                     Ok(_) => {
-                        tracing::info!("Deleted failed job: {}", name);
+                        tracing::info!("Deleted job: {}", name);
                         deleted += 1;
                     }
                     Err(e) => tracing::warn!("Failed to delete job {}: {}", name, e),
-                }
-            } else if let Some(status) = &job.status {
-                if status.succeeded.unwrap_or(0) > 0 {
-                    // Succeeded: delete immediately
-                    match jobs_api.delete(&name, &dp).await {
-                        Ok(_) => {
-                            tracing::info!("Deleted completed job: {}", name);
-                            deleted += 1;
-                        }
-                        Err(e) => tracing::warn!("Failed to delete job {}: {}", name, e),
-                    }
-                } else if status.failed.unwrap_or(0) > 0 {
-                    // Failed: mark for deletion on the next pass
+                },
+                CleanupAction::Mark => {
                     let patch = serde_json::json!({
-                        "metadata": { "labels": { PENDING_LABEL: "true" } }
+                        "metadata": { "labels": { PENDING_CLEANUP_LABEL: "true" } }
                     });
                     match jobs_api
                         .patch(&name, &PatchParams::default(), &Patch::Merge(patch))
@@ -305,6 +316,7 @@ impl JobManager {
                         Err(e) => tracing::warn!("Failed to mark job {} for removal: {}", name, e),
                     }
                 }
+                CleanupAction::Skip => {}
             }
         }
         (deleted, marked)
@@ -502,5 +514,92 @@ mod tests {
             manager.extract_container_id(&job),
             Some("my-id".to_string())
         );
+    }
+
+    fn job_with_status(succeeded: i32, failed: i32, active: i32) -> Job {
+        use k8s_openapi::api::batch::v1::JobStatus;
+        Job {
+            metadata: ObjectMeta {
+                name: Some("ss-test".to_string()),
+                ..Default::default()
+            },
+            status: Some(JobStatus {
+                succeeded: Some(succeeded),
+                failed: Some(failed),
+                active: Some(active),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn with_pending_label(mut job: Job) -> Job {
+        let mut labels = job.metadata.labels.unwrap_or_default();
+        labels.insert(PENDING_CLEANUP_LABEL.to_string(), "true".to_string());
+        job.metadata.labels = Some(labels);
+        job
+    }
+
+    #[test]
+    fn test_classify_succeeded_job_is_deleted() {
+        let job = job_with_status(1, 0, 0);
+        assert_eq!(classify_job(&job), CleanupAction::Delete);
+    }
+
+    #[test]
+    fn test_classify_failed_unmarked_job_is_marked() {
+        let job = job_with_status(0, 1, 0);
+        assert_eq!(classify_job(&job), CleanupAction::Mark);
+    }
+
+    #[test]
+    fn test_classify_failed_marked_job_is_deleted() {
+        let job = with_pending_label(job_with_status(0, 1, 0));
+        assert_eq!(classify_job(&job), CleanupAction::Delete);
+    }
+
+    #[test]
+    fn test_classify_active_job_is_skipped() {
+        let job = job_with_status(0, 0, 1);
+        assert_eq!(classify_job(&job), CleanupAction::Skip);
+    }
+
+    #[test]
+    fn test_classify_job_without_status_is_skipped() {
+        let job = Job {
+            metadata: ObjectMeta {
+                name: Some("ss-test".to_string()),
+                ..Default::default()
+            },
+            status: None,
+            ..Default::default()
+        };
+        assert_eq!(classify_job(&job), CleanupAction::Skip);
+    }
+
+    #[test]
+    fn test_classify_marked_label_takes_precedence() {
+        // A marked job with no status should still be deleted (e.g. status was pruned)
+        let mut job = Job {
+            metadata: ObjectMeta {
+                name: Some("ss-test".to_string()),
+                ..Default::default()
+            },
+            status: None,
+            ..Default::default()
+        };
+        let mut labels = BTreeMap::new();
+        labels.insert(PENDING_CLEANUP_LABEL.to_string(), "true".to_string());
+        job.metadata.labels = Some(labels);
+        assert_eq!(classify_job(&job), CleanupAction::Delete);
+    }
+
+    #[test]
+    fn test_classify_succeeded_job_with_unrelated_label_is_deleted() {
+        let mut job = job_with_status(1, 0, 0);
+        let mut labels = BTreeMap::new();
+        labels.insert("some-other-label".to_string(), "value".to_string());
+        job.metadata.labels = Some(labels);
+        assert_eq!(classify_job(&job), CleanupAction::Delete);
     }
 }
