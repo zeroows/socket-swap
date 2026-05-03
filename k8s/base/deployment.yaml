@@ -44,7 +44,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: JOB_TTL_SECONDS
-              value: "300"
+              value: "0"
             - name: DEFAULT_CPU_LIMIT
               value: "500m"
             - name: DEFAULT_MEMORY_LIMIT

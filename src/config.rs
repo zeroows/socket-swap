@@ -21,9 +21,9 @@ impl Config {
             tcp_addr: env::var("DOCKER_TCP_ADDR").ok(),
             namespace: env::var("KUBE_NAMESPACE").unwrap_or_else(|_| "default".to_string()),
             ttl_seconds_after_finished: env::var("JOB_TTL_SECONDS")
-                .unwrap_or_else(|_| "300".to_string())
+                .unwrap_or_else(|_| "0".to_string())
                 .parse()
-                .unwrap_or(300),
+                .unwrap_or(0),
             active_deadline_seconds: env::var("JOB_ACTIVE_DEADLINE_SECONDS")
                 .unwrap_or_else(|_| "3600".to_string())
                 .parse()

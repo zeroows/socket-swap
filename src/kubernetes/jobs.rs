@@ -7,7 +7,7 @@ use k8s_openapi::api::core::v1::{
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::{
-    api::{Api, DeleteParams, ListParams, PostParams},
+    api::{Api, DeleteParams, ListParams, Patch, PatchParams, PostParams, PropagationPolicy},
     Client,
 };
 use std::collections::BTreeMap;
@@ -229,6 +229,85 @@ impl JobManager {
             .map_err(|_| Error::NotFound(format!("Container {} not found", container_id)))?;
 
         Ok(())
+    }
+
+    // Returns (deleted, marked) counts.
+    // Succeeded jobs are deleted immediately.
+    // Failed jobs are labelled "socket-swap/pending-cleanup=true" on first detection
+    // and deleted on the subsequent pass, giving a 60-second inspection window.
+    pub async fn cleanup_completed_jobs(&self) -> (usize, usize) {
+        const PENDING_LABEL: &str = "socket-swap/pending-cleanup";
+
+        let jobs_api: Api<Job> = Api::namespaced(self.client.clone(), &self.namespace);
+        let lp = ListParams::default().labels("socket-shim=true");
+
+        let job_list = match jobs_api.list(&lp).await {
+            Ok(list) => list,
+            Err(e) => {
+                tracing::warn!("Failed to list jobs for cleanup: {}", e);
+                return (0, 0);
+            }
+        };
+
+        let dp = DeleteParams {
+            propagation_policy: Some(PropagationPolicy::Background),
+            ..Default::default()
+        };
+
+        let mut deleted = 0;
+        let mut marked = 0;
+
+        for job in job_list.items {
+            let name = match job.metadata.name.as_deref() {
+                Some(n) => n.to_string(),
+                None => continue,
+            };
+
+            let is_pending = job
+                .metadata
+                .labels
+                .as_ref()
+                .map(|l| l.contains_key(PENDING_LABEL))
+                .unwrap_or(false);
+
+            if is_pending {
+                // Second pass: delete the previously-marked failed job
+                match jobs_api.delete(&name, &dp).await {
+                    Ok(_) => {
+                        tracing::info!("Deleted failed job: {}", name);
+                        deleted += 1;
+                    }
+                    Err(e) => tracing::warn!("Failed to delete job {}: {}", name, e),
+                }
+            } else if let Some(status) = &job.status {
+                if status.succeeded.unwrap_or(0) > 0 {
+                    // Succeeded: delete immediately
+                    match jobs_api.delete(&name, &dp).await {
+                        Ok(_) => {
+                            tracing::info!("Deleted completed job: {}", name);
+                            deleted += 1;
+                        }
+                        Err(e) => tracing::warn!("Failed to delete job {}: {}", name, e),
+                    }
+                } else if status.failed.unwrap_or(0) > 0 {
+                    // Failed: mark for deletion on the next pass
+                    let patch = serde_json::json!({
+                        "metadata": { "labels": { PENDING_LABEL: "true" } }
+                    });
+                    match jobs_api
+                        .patch(&name, &PatchParams::default(), &Patch::Merge(patch))
+                        .await
+                    {
+                        Ok(_) => {
+                            tracing::info!("Marked failed job for removal: {}", name);
+                            marked += 1;
+                        }
+                        Err(e) => tracing::warn!("Failed to mark job {} for removal: {}", name, e),
+                    }
+                }
+            }
+        }
+        (deleted, marked)
     }
 
     #[allow(dead_code)]
